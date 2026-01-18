@@ -34,10 +34,10 @@ func setupTestRepo(t *testing.T) (string, func()) {
 	}
 
 	// Set up git config for commits
-	if err := core.SetConfig("user.name", "Test User"); err != nil {
+	if err := core.SetConfig("user.name", "Test User", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := core.SetConfig("user.email", "test@example.com"); err != nil {
+	if err := core.SetConfig("user.email", "test@example.com", false); err != nil {
 		t.Fatal(err)
 	}
 

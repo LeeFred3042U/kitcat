@@ -434,26 +434,46 @@ var commands = map[string]CommandFunc{
 		os.Exit(0)
 	},
 	"config": func(args []string) {
-		if len(args) < 2 || args[0] != "--global" {
-			if len(args) == 1 && args[0] == "--list" {
-				if err := core.PrintAllConfig(); err != nil {
-					fmt.Println("Error:", err)
-					os.Exit(1)
-				}
-				os.Exit(0)
-			}
-			fmt.Println("Usage: kitcat config --global <key> [<value>]")
+		if len(args) == 0 {
+			fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
 			os.Exit(2)
 		}
-		key := args[1]
-		if len(args) == 3 {
-			value := args[2]
-			if err := core.SetConfig(key, value); err != nil {
+
+		// Support listing configuration
+		if len(args) == 1 && args[0] == "--list" {
+			if err := core.PrintAllConfig(); err != nil {
 				fmt.Println("Error:", err)
 				os.Exit(1)
 			}
 			os.Exit(0)
-		} else if len(args) == 2 {
+		}
+
+		global := false
+		argIndex := 0
+		if args[0] == "--global" {
+			global = true
+			argIndex = 1
+		}
+
+		// After optional --global, we need at least a key
+		if len(args) <= argIndex {
+			fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
+			os.Exit(2)
+		}
+
+		key := args[argIndex]
+
+		// Determine if we're setting or getting
+		if len(args) == argIndex+2 {
+			value := args[argIndex+1]
+			if err := core.SetConfig(key, value, global); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		if len(args) == argIndex+1 {
 			value, ok, err := core.GetConfig(key)
 			if err != nil {
 				fmt.Println("Error:", err)
@@ -463,10 +483,11 @@ var commands = map[string]CommandFunc{
 				fmt.Println(value)
 				os.Exit(0)
 			}
-		} else {
-			fmt.Println("Usage: kitcat config --global <key> [<value>]")
-			os.Exit(2)
+			os.Exit(1)
 		}
+
+		fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
+		os.Exit(2)
 	},
 	"show-object": func(args []string) {
 		if len(args) != 1 {

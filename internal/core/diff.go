@@ -18,6 +18,17 @@ const (
 	colorBlue  = "\033[1;34m"
 )
 
+func isDiffBinary(content []byte) bool {
+	limit := min(len(content), 512)
+
+	for i := range limit {
+		if content[i] == 0x00 {
+			return true
+		}
+	}
+	return false
+}
+
 // displayDiff formats and prints the structured diff output from the Myers algorithm.
 // It iterates through each change (insertion, deletion, or equal) and applies the appropriate color
 func displayDiff(diffs []diff.Diff[string]) {
@@ -110,6 +121,12 @@ func Diff(staged bool) error {
 					return err
 				}
 
+				// If the Content is binary
+				if isDiffBinary(oldContent) || isDiffBinary(newContent) {
+					fmt.Println("Binary files differ")
+					continue
+				}
+
 				// Split file content into lines to prepare for the diff algorithm
 				oldLines := strings.Split(string(oldContent), "\n")
 				newLines := strings.Split(string(newContent), "\n")
@@ -152,6 +169,11 @@ func Diff(staged bool) error {
 			// Compare: working directory vs index (staged)
 			if string(fileContent) != string(indexContent) {
 				fmt.Printf("%sChanged (unstaged): %s%s\n", colorBlue, path, colorReset)
+
+				// If the diff is binary
+				if isDiffBinary(fileContent) || isDiffBinary(indexContent) {
+					fmt.Println("Binary files differ")
+				}
 
 				// Index content = "old" (what's staged)
 				// Working dir content = "new" (current changes)
@@ -213,6 +235,12 @@ func Diff(staged bool) error {
 		for _, path := range untracked {
 			content, err := os.ReadFile(path)
 			if err != nil {
+				continue
+			}
+
+			// If the content is binary
+			if isDiffBinary(content) {
+				fmt.Println("Binary files differ")
 				continue
 			}
 

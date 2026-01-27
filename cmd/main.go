@@ -187,9 +187,13 @@ var commands = map[string]CommandFunc{
 	},
 	"diff": func(args []string) {
 		staged := false
-		if len(args) > 0 {
-			if args[0] == "--cached" || args[0] == "--staged" {
+		for _, arg := range args {
+			switch arg {
+			case "--cached", "--staged":
 				staged = true
+			default:
+				fmt.Println("Path filtering not supported")
+				os.Exit(2)
 			}
 		}
 		if err := core.Diff(staged); err != nil {
@@ -618,6 +622,32 @@ var commands = map[string]CommandFunc{
 			os.Exit(0)
 		}
 
+		if len(args) > 1 && args[0] == "apply" {
+			idx, err := parseStashIndex(args[1])
+			if err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(2)
+			}
+			if err := core.StashApply(idx); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		if len(args) > 1 && args[0] == "drop" {
+			idx, err := parseStashIndex(args[1])
+			if err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(2)
+			}
+			if err := core.StashDrop(idx); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
 		if len(args) > 0 && args[0] == "clear" {
 			if err := core.StashClear(); err != nil {
 				fmt.Println("Error:", err)
@@ -635,6 +665,16 @@ var commands = map[string]CommandFunc{
 		fmt.Println("Saved working directory and index state")
 		os.Exit(0)
 	},
+}
+
+// parseStashIndex parses a string index for stash commands.
+func parseStashIndex(s string) (int, error) {
+	var idx int
+	_, err := fmt.Sscanf(s, "%d", &idx)
+	if err != nil {
+		return 0, fmt.Errorf("invalid stash index: %s", s)
+	}
+	return idx, nil
 }
 
 // printCommitResult formats and prints the commit result with summary

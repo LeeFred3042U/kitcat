@@ -74,6 +74,9 @@ func Status() error {
 		}
 	}
 
+	// Track which files we've seen in the working directory
+	visitedPaths := make(map[string]bool)
+
 	// Categorize Unstaged & Untracked Changes (Working Directory vs. Index)
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -86,6 +89,8 @@ func Status() error {
 			cleanPath == RepoDir {
 			return nil
 		}
+
+		visitedPaths[cleanPath] = true
 
 		indexHash, isTracked := index[cleanPath]
 
@@ -109,6 +114,19 @@ func Status() error {
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Check for files that are in the index but not in the working directory (deleted files)
+	for path := range index {
+		if !visitedPaths[path] {
+			// Verify it's actually missing
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				unstagedChanges = append(unstagedChanges, fmt.Sprintf("deleted:   %s", path))
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}

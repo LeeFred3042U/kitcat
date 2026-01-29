@@ -127,9 +127,6 @@ func Status() error {
 			}
 		}
 	}
-	if err != nil {
-		return err
-	}
 
 	// Print Final Summary - Only show sections that have content
 	if len(stagedChanges) > 0 {

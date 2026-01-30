@@ -1,0 +1,115 @@
+name: kitcat Tools tests
+
+on:
+  
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+
+jobs:
+  test-kitcat:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build kitcat
+        run: |
+          set -euo pipefail
+          go build -o kitcat ./cmd/main.go
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          go test ./...
+
+      - name: Create test repository
+        run: |
+          set -euo pipefail
+          mkdir test-repo
+          cd test-repo
+
+          ../kitcat init
+          ../kitcat config --global user.name "testci"
+          ../kitcat config --global user.email "testci@example.com"
+
+      - name: Initial commit
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          echo "test content" > test.txt
+          ../kitcat add test.txt
+          ../kitcat commit -m "Initial commit"
+
+      - name: Status & log
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          ../kitcat status
+          ../kitcat log
+          ../kitcat log --oneline
+
+      - name: Add all & second commit
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          echo "file2 content" > file2.txt
+          ../kitcat add --all
+          ../kitcat commit -m "Add file2"
+
+      - name: Branching & checkout
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          ../kitcat branch feature
+          ../kitcat branch
+          ../kitcat checkout feature
+
+      - name: Commit on feature branch
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          echo "feature content" > feature.txt
+          ../kitcat add feature.txt
+          ../kitcat commit -m "Add feature"
+
+      - name: Merge feature branch (fast-forward)
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          ../kitcat checkout main
+          ../kitcat merge feature
+
+      - name: Diff & clean
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          echo "new change" >> test.txt
+          ../kitcat diff
+
+          echo "untracked" > untracked.tmp
+          ../kitcat clean -f
+
+      - name: Help commands
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          ../kitcat help
+          ../kitcat help add
+
+      - name: kitignore behavior
+        working-directory: test-repo
+        run: |
+          set -euo pipefail
+          echo "*.log" > .kitignore
+          echo "debug info" > debug.log
+          ../kitcat status

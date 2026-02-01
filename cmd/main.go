@@ -187,16 +187,19 @@ var commands = map[string]CommandFunc{
 	},
 	"diff": func(args []string) {
 		staged := false
+		stat := false
 		for _, arg := range args {
 			switch arg {
 			case "--cached", "--staged":
 				staged = true
+			case "--stat":
+				stat = true
 			default:
 				fmt.Println("Path filtering not supported")
 				os.Exit(2)
 			}
 		}
-		if err := core.Diff(staged); err != nil {
+		if err := core.Diff(staged, stat); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
 		}

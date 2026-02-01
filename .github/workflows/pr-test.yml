@@ -95,6 +95,9 @@ jobs:
           set -euo pipefail
           echo "new change" >> test.txt
           ../kitcat diff
+          ../kitcat diff --stat
+          ../kitcat add test.txt
+          ../kitcat diff --staged --stat
 
           echo "untracked" > untracked.tmp
           ../kitcat clean -f

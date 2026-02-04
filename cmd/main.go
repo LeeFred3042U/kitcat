@@ -362,6 +362,7 @@ var commands = map[string]CommandFunc{
 		}
 	},
 	"ls-files": func(args []string) {
+		core.EnsureArgs(args, 0, 0, "ls-files")
 		if !core.IsRepoInitialized() {
 			fmt.Println(
 				"Error: not a kitcat repository (or any of the parent directories): .kitcat",

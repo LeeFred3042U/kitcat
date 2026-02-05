@@ -427,7 +427,7 @@ func applyChanges(changes map[string]Change) error {
 					path,
 				)
 			}
-			if err := RemoveFile(path); err != nil {
+			if err := RemoveFile(path, true); err != nil {
 				return err
 			}
 		} else {

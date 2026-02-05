@@ -295,7 +295,7 @@ Please refer to [SECURITY.md](SECURITY.md) for details. Issues involving **data 
 
 ## Code of Conduct
 
-Please note that this project is released with a [Code of Conduct](https://www.google.com/search?q=CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+Please note that this project is released with a [Code of Conduct](./CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
 
 ## License
 

@@ -45,3 +45,7 @@ The following diagram illustrates kitcat's fast-forward merge behavior. It shows
 
 PlantUML source: docs/architecture/merge/merge.puml  
 See internal/core/merge.go for implementation details.
+
+
+## Checkout Flow
+![Checkout Activity Diagram](./architecture/checkout/checkout.png)

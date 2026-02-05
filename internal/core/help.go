@@ -68,6 +68,30 @@ var helpMessages = map[string]CommandHelp{
 		Summary: "Move or rename a file, a directory, or a symlink",
 		Usage:   "Usage: kitcat mv <old> <new>\n\nRenames the file/directory <old> to <new>.",
 	},
+	"status": {
+		Summary: "Show the working tree status",
+		Usage:   "Usage: kitcat status\n\nDisplays paths that have differences between the working tree, the index and the last commit. Shows staged, unstaged and untracked files.",
+	},
+	"stash": {
+		Summary: "Stash the current working directory changes",
+		Usage:   "Usage: kitcat stash\n\nTemporarily saves changes in the working directory and index, allowing you to work on a clean state and reapply them later.",
+	},
+	"rebase": {
+		Summary: "Reapply commits on top of another base commit",
+		Usage:   "Usage: kitcat rebase <branch>\n\nReapplies the current branch commits on top of the specified branch, resulting in a linear commit history.",
+	},
+	"grep": {
+		Summary: "Search for patterns in tracked files",
+		Usage:   "Usage: kitcat grep <pattern>\n\nSearches through tracked files in the repository and prints lines matching the given pattern.",
+	},
+	"shortlog": {
+		Summary: "Summarize commit history by author",
+		Usage:   "Usage: kitcat shortlog\n\nDisplays a condensed summary of commit history, grouped by author, showing commit counts and messages.",
+	},
+	"rm": {
+		Summary: "Remove files from the working tree and index",
+		Usage:   "Usage: kitcat rm <file-path>\n\nRemoves the specified file from the working directory & stages the removal for the next commit.",
+	},
 }
 
 func PrintGeneralHelp() {

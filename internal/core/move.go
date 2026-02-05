@@ -11,6 +11,9 @@ func MoveFile(oldPath, newPath string, force bool) error {
 	if oldPath == newPath {
 		return errors.New("source and destination paths are the same")
 	}
+	if !IsSafePath(oldPath) || !IsSafePath(newPath) {
+		return errors.New("unsafe path detected")
+	}
 
 	// If force is true, overwrites destination
 	// If not returns error if destination path already exists

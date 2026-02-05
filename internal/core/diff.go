@@ -18,6 +18,23 @@ const (
 	colorBlue  = "\033[1;34m"
 )
 
+// FileStat holds the number of insertions and deletions for a file
+type FileStat struct {
+	Insertions int
+	Deletions  int
+}
+
+func isDiffBinary(content []byte) bool {
+	limit := min(len(content), 512)
+
+	for i := range limit {
+		if content[i] == 0x00 {
+			return true
+		}
+	}
+	return false
+}
+
 // displayDiff formats and prints the structured diff output from the Myers algorithm.
 // It iterates through each change (insertion, deletion, or equal) and applies the appropriate color
 func displayDiff(diffs []diff.Diff[string]) {
@@ -46,7 +63,8 @@ func displayDiff(diffs []diff.Diff[string]) {
 
 // Diff calculates and displays the differences between the last commit and the current staging area (index)
 // It identifies which files have been added, deleted, or modified.
-func Diff(staged bool) error {
+func Diff(staged, stat bool) error {
+	stats := make(map[string]FileStat)
 	// Retrieve the metadata for the most recent commit.
 	lastCommit, err := storage.GetLastCommit()
 	if err != nil {
@@ -78,7 +96,9 @@ func Diff(staged bool) error {
 			treeHash, ok := tree[path]
 			// If a file is in the index but not in the old tree, it's a new file.
 			if !ok {
-				fmt.Printf("%sAdded file: %s%s\n", colorBlue, path, colorReset)
+				if !stat {
+					fmt.Printf("%sAdded file: %s%s\n", colorBlue, path, colorReset)
+				}
 
 				// Show content of added file (all lines are additions)
 				content, err := storage.ReadObject(indexHash)
@@ -92,13 +112,25 @@ func Diff(staged bool) error {
 
 				myers := diff.NewMyersDiff(emptyLines, fileLines)
 				diffs := myers.Diffs()
-				displayDiff(diffs)
+				if stat {
+					fileStat := stats[path]
+					for _, d := range diffs {
+						if d.Operation == diff.INSERT {
+							fileStat.Insertions += len(d.Text)
+						}
+					}
+					stats[path] = fileStat
+				} else {
+					displayDiff(diffs)
+				}
 				continue
 			}
 
 			// If the file exists in both, but the content hash is different, it has been modified
 			if indexHash != treeHash {
-				fmt.Printf("%sModified file: %s%s\n", colorBlue, path, colorReset)
+				if !stat {
+					fmt.Printf("%sModified file: %s%s\n", colorBlue, path, colorReset)
+				}
 
 				// Read the old and new content from the object store.
 				oldContent, err := storage.ReadObject(treeHash)
@@ -110,6 +142,14 @@ func Diff(staged bool) error {
 					return err
 				}
 
+				// If the Content is binary
+				if isDiffBinary(oldContent) || isDiffBinary(newContent) {
+					if !stat {
+						fmt.Println("Binary files differ")
+					}
+					continue
+				}
+
 				// Split file content into lines to prepare for the diff algorithm
 				oldLines := strings.Split(string(oldContent), "\n")
 				newLines := strings.Split(string(newContent), "\n")
@@ -118,16 +158,38 @@ func Diff(staged bool) error {
 				myers := diff.NewMyersDiff(oldLines, newLines)
 				diffs := myers.Diffs()
 
-				// Display the computed differences with color
-				displayDiff(diffs)
+				if stat {
+					fileStat := stats[path]
+					for _, d := range diffs {
+						switch d.Operation {
+						case diff.INSERT:
+							fileStat.Insertions += len(d.Text)
+						case diff.DELETE:
+							fileStat.Deletions += len(d.Text)
+						}
+					}
+					stats[path] = fileStat
+				} else {
+					// Display the computed differences with color
+					displayDiff(diffs)
+				}
 			}
 		}
 
 		// Next Loop: Iterate through files in the old tree to find deletions.
-		for path := range tree {
+		for path, treeHash := range tree {
 			// If a file was in the old tree but is no longer in the index, it has been deleted.
 			if _, ok := index[path]; !ok {
-				fmt.Printf("%sDeleted file: %s%s\n", colorBlue, path, colorReset)
+				if stat {
+					content, err := storage.ReadObject(treeHash)
+					if err != nil {
+						return err
+					}
+					lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+					stats[path] = FileStat{Deletions: len(lines)}
+				} else {
+					fmt.Printf("%sDeleted file: %s%s\n", colorBlue, path, colorReset)
+				}
 			}
 		}
 	} else {
@@ -139,7 +201,15 @@ func Diff(staged bool) error {
 			fileContent, err := os.ReadFile(path)
 			if err != nil {
 				// File deleted from working directory (but still staged)
-				fmt.Printf("%sDeleted (unstaged): %s%s\n", colorRed, path, colorReset)
+				if stat {
+					indexContent, err := storage.ReadObject(indexHash)
+					if err == nil {
+						lines := strings.Split(strings.TrimRight(string(indexContent), "\n"), "\n")
+						stats[path] = FileStat{Deletions: len(lines)}
+					}
+				} else {
+					fmt.Printf("%sDeleted (unstaged): %s%s\n", colorRed, path, colorReset)
+				}
 				continue
 			}
 
@@ -151,7 +221,17 @@ func Diff(staged bool) error {
 
 			// Compare: working directory vs index (staged)
 			if string(fileContent) != string(indexContent) {
-				fmt.Printf("%sChanged (unstaged): %s%s\n", colorBlue, path, colorReset)
+				if !stat {
+					fmt.Printf("%sChanged (unstaged): %s%s\n", colorBlue, path, colorReset)
+				}
+
+				// If the diff is binary
+				if isDiffBinary(fileContent) || isDiffBinary(indexContent) {
+					if !stat {
+						fmt.Println("Binary files differ")
+					}
+					continue
+				}
 
 				// Index content = "old" (what's staged)
 				// Working dir content = "new" (current changes)
@@ -162,7 +242,21 @@ func Diff(staged bool) error {
 				// Myers diff: staged (old) → working dir (new)
 				myers := diff.NewMyersDiff(indexLines, workDirLines)
 				diffs := myers.Diffs()
-				displayDiff(diffs)
+
+				if stat {
+					fileStat := stats[path]
+					for _, d := range diffs {
+						switch d.Operation {
+						case diff.INSERT:
+							fileStat.Insertions += len(d.Text)
+						case diff.DELETE:
+							fileStat.Deletions += len(d.Text)
+						}
+					}
+					stats[path] = fileStat
+				} else {
+					displayDiff(diffs)
+				}
 			}
 		}
 
@@ -216,7 +310,17 @@ func Diff(staged bool) error {
 				continue
 			}
 
-			fmt.Printf("%s%sUntracked:%s %s\n", colorGreen, colorBlue, colorReset, path)
+			// If the content is binary
+			if isDiffBinary(content) {
+				if !stat {
+					fmt.Println("Binary files differ")
+				}
+				continue
+			}
+
+			if !stat {
+				fmt.Printf("%s%sUntracked:%s %s\n", colorGreen, colorBlue, colorReset, path)
+			}
 
 			// Trim trailing newlines and split into lines
 			contentStr := strings.TrimRight(string(content), "\n")
@@ -228,10 +332,94 @@ func Diff(staged bool) error {
 			myers := diff.NewMyersDiff(emptyLines, fileLines)
 			diffs := myers.Diffs()
 
-			// Display the computed differences with color
-			displayDiff(diffs)
+			if stat {
+				fileStat := stats[path]
+				for _, d := range diffs {
+					if d.Operation == diff.INSERT {
+						fileStat.Insertions += len(d.Text)
+					}
+				}
+				stats[path] = fileStat
+			} else {
+				// Display the computed differences with color
+				displayDiff(diffs)
+			}
 		}
 	}
 
+	if stat {
+		printDiffStat(stats)
+	}
+
 	return nil
+}
+
+func printDiffStat(stats map[string]FileStat) {
+	if len(stats) == 0 {
+		return
+	}
+
+	maxPathLen := 0
+	maxChanges := 0
+	totalInsertions := 0
+	totalDeletions := 0
+
+	for path, stat := range stats {
+		if len(path) > maxPathLen {
+			maxPathLen = len(path)
+		}
+		changes := stat.Insertions + stat.Deletions
+		if changes > maxChanges {
+			maxChanges = changes
+		}
+		totalInsertions += stat.Insertions
+		totalDeletions += stat.Deletions
+	}
+
+	maxGraphWidth := 60
+	if maxPathLen > 40 {
+		maxPathLen = 40
+	}
+
+	for path, stat := range stats {
+		displayPath := path
+		if len(displayPath) > maxPathLen {
+			displayPath = "..." + displayPath[len(displayPath)-(maxPathLen-3):]
+		}
+
+		changes := stat.Insertions + stat.Deletions
+		fmt.Printf(" %-*s | %d ", maxPathLen, displayPath, changes)
+
+		// Histogram
+		if maxChanges > 0 {
+			graphWidth := (changes * maxGraphWidth) / maxChanges
+			if graphWidth == 0 && changes > 0 {
+				graphWidth = 1
+			}
+
+			plusCount := 0
+			minusCount := 0
+			if changes > 0 {
+				plusCount = (stat.Insertions * graphWidth) / changes
+				minusCount = graphWidth - plusCount
+			}
+
+			fmt.Print(colorGreen)
+			for i := 0; i < plusCount; i++ {
+				fmt.Print("+")
+			}
+			fmt.Print(colorRed)
+			for i := 0; i < minusCount; i++ {
+				fmt.Print("-")
+			}
+			fmt.Print(colorReset)
+		}
+		fmt.Println()
+	}
+
+	fileWord := "file"
+	if len(stats) > 1 {
+		fileWord = "files"
+	}
+	fmt.Printf(" %d %s changed, %d insertions(+), %d deletions(-)\n", len(stats), fileWord, totalInsertions, totalDeletions)
 }

@@ -1,4 +1,4 @@
-#kitcat Testing Guidelines & Standards
+# kitcat Testing Guidelines & Standards
 
 kitcat uses **two distinct test classes** with **non-overlapping rules**:
 

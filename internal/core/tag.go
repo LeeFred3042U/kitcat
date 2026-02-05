@@ -10,9 +10,14 @@ import (
 const tagsDir = ".kitcat/refs/tags"
 
 // Creates a new lightweight tag pointing to a specific commit
+
 func CreateTag(tagName, commitID string) error {
 	if !IsRepoInitialized() {
 		return fmt.Errorf("not a kitcat repository (or any of the parent directories): .kitcat")
+	}
+
+	if !IsValidRefName(tagName) {
+		return fmt.Errorf("invalid tag name: %s", tagName)
 	}
 
 	if err := os.MkdirAll(tagsDir, 0o755); err != nil {

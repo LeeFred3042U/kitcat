@@ -7,6 +7,7 @@ start
 
 :Load HEAD Tree (Last Commit);
 :Load Index (Staging Area);
+:Load Ignore Patterns;
 
 partition "Staged Changes (Index vs HEAD)" {
 
@@ -30,12 +31,23 @@ partition "Unstaged & Untracked (Working Directory vs Index)" {
   :Walk Working Directory
   (filepath.Walk);
 
-  if (File exists in Index?) then (no)
-    :Mark as Untracked;
-  else (yes)
+  if (File exists in Index?) then (yes)
     if (Content hash differs from Index?) then (yes)
       :Mark as Modified (Unstaged);
     endif
+  else (no)
+    if (Is File Ignored?) then (yes)
+      :Skip;
+    else (no)
+      :Mark as Untracked;
+    endif
+  endif
+}
+
+partition "Unstaged Deletions (Index vs Working Directory)" {
+  :Iterate through Index entries;
+  if (File exists in Working Directory?) then (no)
+    :Mark as Deleted (Unstaged);
   endif
 }
 

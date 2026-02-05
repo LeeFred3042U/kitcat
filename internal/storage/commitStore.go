@@ -21,17 +21,16 @@ func AppendCommit(commit models.Commit) error {
 		return err
 	}
 
-	// Use the generic lock function from lock*.go for consistency
-	lockFile, err := lock(commitsPath)
-	if err != nil {
-		return err
-	}
-	defer unlock(lockFile)
-
 	f, err := os.OpenFile(commitsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+	// Direct locking on the file descriptor
+	if err := LockFile(f); err != nil {
+		f.Close()
+		return err
+	}
+	// Defer close to unlock
 	defer f.Close()
 
 	enc := json.NewEncoder(f)

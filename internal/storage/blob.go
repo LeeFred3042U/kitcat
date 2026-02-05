@@ -2,7 +2,7 @@ package storage
 
 import (
 	"crypto/sha1"
-	"fmt"
+	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,7 +12,9 @@ const (
 	objectsDir = ".kitcat/objects"
 )
 
-func HashAndStoreFile(path string) (string, error) {
+// computeFileHash computes the SHA-1 hash of a file at the given path.
+// Returns the hash as a hexadecimal string and any error encountered.
+func computeFileHash(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -23,7 +25,15 @@ func HashAndStoreFile(path string) (string, error) {
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
 	}
-	hash := fmt.Sprintf("%x", h.Sum(nil))
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func HashAndStoreFile(path string) (string, error) {
+	hash, err := computeFileHash(path)
+	if err != nil {
+		return "", err
+	}
 
 	objPath := filepath.Join(objectsDir, hash)
 	// ensure objects dir exists
@@ -32,20 +42,24 @@ func HashAndStoreFile(path string) (string, error) {
 	}
 
 	if _, err := os.Stat(objPath); os.IsNotExist(err) {
-		// write via tmp file — reuse already-open file by rewinding
+		// write via tmp file — read file again for storage
 		tmp := objPath + ".tmp"
-		if _, err := f.Seek(0, 0); err != nil {
+		f, err := os.Open(path)
+		if err != nil {
 			return "", err
 		}
 		out, err := os.Create(tmp)
 		if err != nil {
+			f.Close()
 			return "", err
 		}
 		if _, err := io.Copy(out, f); err != nil {
+			f.Close()
 			out.Close()
 			os.Remove(tmp)
 			return "", err
 		}
+		f.Close()
 		out.Close()
 		if err := os.Rename(tmp, objPath); err != nil {
 			os.Remove(tmp)
@@ -64,16 +78,5 @@ func ReadObject(hash string) ([]byte, error) {
 // Computes the SHA-1 hash of a file's content
 // does not store the file in the object database
 func HashFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	hasher := sha1.New()
-	if _, err := io.Copy(hasher, file); err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+	return computeFileHash(path)
 }

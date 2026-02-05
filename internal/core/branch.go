@@ -12,11 +12,16 @@ import (
 
 const headsDir string = ".kitcat/refs/heads"
 
-// isValidRefName checks if the branch name is safe and valid
-func isValidRefName(name string) bool {
-	if strings.Contains(name, "..") ||
-		strings.ContainsAny(name, `\/`) ||
-		strings.ContainsAny(name, "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f") {
+// IsValidRefName checks if the branch or tag name is safe and valid
+func IsValidRefName(name string) bool {
+	if !IsSafePath(name) {
+		return false
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return false
+	}
+	// Additional branch-specific checks (e.g., no spaces)
+	if strings.Contains(name, " ") {
 		return false
 	}
 	return true
@@ -46,7 +51,7 @@ func readCommitHash(referencePath string) (string, error) {
 
 // Create a new branch pointing to the current HEAD commit
 func CreateBranch(name string) error {
-	if !isValidRefName(name) {
+	if !IsValidRefName(name) {
 		return fmt.Errorf("invalid branch name '%s'", name)
 	}
 	if IsBranch(name) {
@@ -116,19 +121,22 @@ func ListBranches() error {
 }
 
 func RenameCurrentBranch(newName string) error {
-	if !isValidRefName(newName) {
+	if !IsValidRefName(newName) {
 		return fmt.Errorf("invalid branch name '%s'", newName)
 	}
+
 	headPath := ".kitcat/HEAD"
 	headContent, err := os.ReadFile(headPath)
 	if err != nil {
 		return err
 	}
+
 	headStr := strings.TrimSpace(string(headContent))
 	const refPrefix = "ref: refs/heads/"
 	if !strings.HasPrefix(headStr, refPrefix) {
 		return errors.New("HEAD is not pointing to a branch")
 	}
+
 	oldName := strings.TrimPrefix(headStr, refPrefix)
 	oldRef := filepath.Join(".kitcat", "refs", "heads", oldName)
 	newRef := filepath.Join(".kitcat", "refs", "heads", newName)
@@ -136,10 +144,26 @@ func RenameCurrentBranch(newName string) error {
 	if _, err := os.Stat(newRef); err == nil {
 		return fmt.Errorf("branch '%s' already exists", newName)
 	}
-	if err := os.Rename(oldRef, newRef); err != nil {
+
+	commitHash, err := os.ReadFile(oldRef)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(headPath, []byte(refPrefix+newName+"\n"), 0o644)
+
+	if err := os.WriteFile(newRef, commitHash, 0o644); err != nil {
+		return err
+	}
+
+	newHeadContent := []byte(refPrefix + newName + "\n")
+	if err := os.WriteFile(headPath, newHeadContent, 0o644); err != nil {
+		return err
+	}
+
+	if err := os.Remove(oldRef); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // DeleteBranch deletes the branch

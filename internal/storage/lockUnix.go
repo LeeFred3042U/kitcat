@@ -14,11 +14,16 @@ func lock(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := LockFile(f); err != nil {
 		f.Close()
 		return nil, err
 	}
 	return f, nil
+}
+
+// LockFile applies an exclusive lock on the file descriptor
+func LockFile(f *os.File) error {
+	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 }
 
 // unlock releases the file lock on Unix systems

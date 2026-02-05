@@ -13,6 +13,7 @@ type CommandFunc func(args []string)
 
 var commands = map[string]CommandFunc{
 	"init": func(args []string) {
+		core.EnsureArgs(args, 0, 0, "init")
 		if err := core.InitRepo(); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
@@ -49,6 +50,7 @@ var commands = map[string]CommandFunc{
 	},
 
 	"rm": func(args []string) {
+
 		force := false
 		files := make([]string, 0, len(args))
 
@@ -61,18 +63,21 @@ var commands = map[string]CommandFunc{
 		}
 
 		if len(files) < 1 {
-			fmt.Println("Usage: kitcat rm [-f] <file>")
+			fmt.Println("Usage: kitcat rm [-f] <file> [file...]")
 			os.Exit(2)
 		}
 
+		exitCode := 0
 		for _, filename := range files {
 			if err := core.RemoveFile(filename, force); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
+				fmt.Printf("Error removing '%s': %v\n", filename, err)
+				exitCode = 1
+			} else {
+				fmt.Printf("Removed '%s'\n", filename)
 			}
-			fmt.Printf("Removed '%s'\n", filename)
 		}
-		os.Exit(0)
+		os.Exit(exitCode)
+
 	},
 	"commit": func(args []string) {
 		if !core.IsRepoInitialized() {
@@ -195,12 +200,19 @@ var commands = map[string]CommandFunc{
 	},
 	"diff": func(args []string) {
 		staged := false
-		if len(args) > 0 {
-			if args[0] == "--cached" || args[0] == "--staged" {
+		stat := false
+		for _, arg := range args {
+			switch arg {
+			case "--cached", "--staged":
 				staged = true
+			case "--stat":
+				stat = true
+			default:
+				fmt.Println("Path filtering not supported")
+				os.Exit(2)
 			}
 		}
-		if err := core.Diff(staged); err != nil {
+		if err := core.Diff(staged, stat); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
 		}
@@ -363,6 +375,7 @@ var commands = map[string]CommandFunc{
 		}
 	},
 	"ls-files": func(args []string) {
+		core.EnsureArgs(args, 0, 0, "ls-files")
 		if !core.IsRepoInitialized() {
 			fmt.Println(
 				"Error: not a kitcat repository (or any of the parent directories): .kitcat",
@@ -400,7 +413,7 @@ var commands = map[string]CommandFunc{
 
 		if !force {
 			fmt.Println("This will delete untracked files. Run 'kitcat clean -f' to proceed.")
-			os.Exit(0)
+			os.Exit(1)
 		}
 
 		if err := core.Clean(dryRun, includeIgnored); err != nil {
@@ -447,26 +460,46 @@ var commands = map[string]CommandFunc{
 		os.Exit(0)
 	},
 	"config": func(args []string) {
-		if len(args) < 2 || args[0] != "--global" {
-			if len(args) == 1 && args[0] == "--list" {
-				if err := core.PrintAllConfig(); err != nil {
-					fmt.Println("Error:", err)
-					os.Exit(1)
-				}
-				os.Exit(0)
-			}
-			fmt.Println("Usage: kitcat config --global <key> [<value>]")
+		if len(args) == 0 {
+			fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
 			os.Exit(2)
 		}
-		key := args[1]
-		if len(args) == 3 {
-			value := args[2]
-			if err := core.SetConfig(key, value); err != nil {
+
+		// Support listing configuration
+		if len(args) == 1 && args[0] == "--list" {
+			if err := core.PrintAllConfig(); err != nil {
 				fmt.Println("Error:", err)
 				os.Exit(1)
 			}
 			os.Exit(0)
-		} else if len(args) == 2 {
+		}
+
+		global := false
+		argIndex := 0
+		if args[0] == "--global" {
+			global = true
+			argIndex = 1
+		}
+
+		// After optional --global, we need at least a key
+		if len(args) <= argIndex {
+			fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
+			os.Exit(2)
+		}
+
+		key := args[argIndex]
+
+		// Determine if we're setting or getting
+		if len(args) == argIndex+2 {
+			value := args[argIndex+1]
+			if err := core.SetConfig(key, value, global); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		if len(args) == argIndex+1 {
 			value, ok, err := core.GetConfig(key)
 			if err != nil {
 				fmt.Println("Error:", err)
@@ -476,10 +509,11 @@ var commands = map[string]CommandFunc{
 				fmt.Println(value)
 				os.Exit(0)
 			}
-		} else {
-			fmt.Println("Usage: kitcat config --global <key> [<value>]")
-			os.Exit(2)
+			os.Exit(1)
 		}
+
+		fmt.Println("Usage: kitcat config [--global] <key> [<value>]")
+		os.Exit(2)
 	},
 	"show-object": func(args []string) {
 		if len(args) != 1 {
@@ -495,8 +529,11 @@ var commands = map[string]CommandFunc{
 	},
 	"branch": func(args []string) {
 		if len(args) == 0 {
-			fmt.Println("Usage: kitcat branch [-l | -r <branch-name> | -d <branch-name>]")
-			os.Exit(2)
+			if err := core.ListBranches(); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		}
 		switch args[0] {
 		case "-l":
@@ -573,13 +610,67 @@ var commands = map[string]CommandFunc{
 			fmt.Println("Error: not a kitcat repository (or any of the parent directories): .kitcat")
 			os.Exit(1)
 		}
+		if len(args) > 0 && args[0] == "list" {
+			if err := core.StashList(); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
 
-		// Handle subcommands
+		if len(args) > 0 && args[0] == "push" {
+			message := ""
+			if len(args) > 1 {
+				message = strings.Join(args[1:], " ")
+			}
+			if err := core.StashPush(message); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Saved working directory and index state")
+			os.Exit(0)
+		}
+
 		if len(args) > 0 && args[0] == "pop" {
 			if err := core.StashPop(); err != nil {
 				fmt.Println("Error:", err)
 				os.Exit(1)
 			}
+			os.Exit(0)
+		}
+
+		if len(args) > 1 && args[0] == "apply" {
+			idx, err := parseStashIndex(args[1])
+			if err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(2)
+			}
+			if err := core.StashApply(idx); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		if len(args) > 1 && args[0] == "drop" {
+			idx, err := parseStashIndex(args[1])
+			if err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(2)
+			}
+			if err := core.StashDrop(idx); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
+
+		if len(args) > 0 && args[0] == "clear" {
+			if err := core.StashClear(); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Cleared all stash entries")
 			os.Exit(0)
 		}
 
@@ -591,6 +682,16 @@ var commands = map[string]CommandFunc{
 		fmt.Println("Saved working directory and index state")
 		os.Exit(0)
 	},
+}
+
+// parseStashIndex parses a string index for stash commands.
+func parseStashIndex(s string) (int, error) {
+	var idx int
+	_, err := fmt.Sscanf(s, "%d", &idx)
+	if err != nil {
+		return 0, fmt.Errorf("invalid stash index: %s", s)
+	}
+	return idx, nil
 }
 
 // printCommitResult formats and prints the commit result with summary

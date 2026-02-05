@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-const hint = "\033[33m"
+const colorYellow = "\033[33m"
 
 // isPathExist checks if a path exist or not
 func isPathExist(path string) bool {
@@ -16,10 +16,7 @@ func isPathExist(path string) bool {
 
 // InitRepo sets up the .kitcat directory structure.
 func InitRepo() error {
-	// Checks if Repo is already initialized or not
-	if isPathExist(RepoDir) {
-		return fmt.Errorf("repository already initialized")
-	}
+	// Idempotent: do not error if repo exists, just ensure structure is correct
 
 	// Create all necessary subdirectories using the public constants.
 	dirs := []string{
@@ -35,41 +32,50 @@ func InitRepo() error {
 		}
 	}
 
-	// Create empty files.
+	// Create empty files only if they do not exist.
 	files := []string{IndexPath, CommitsPath}
 	for _, file := range files {
-		f, err := os.Create(file)
-		if err != nil {
+		if !isPathExist(file) {
+			f, err := os.Create(file)
+			if err != nil {
+				return err
+			}
+			f.Close()
+		}
+	}
+
+	// Create the HEAD file to point to the default branch (main) only if it does not exist.
+	headContent := []byte("ref: refs/heads/main")
+	if !isPathExist(HeadPath) {
+		if err := os.WriteFile(HeadPath, headContent, 0o644); err != nil {
 			return err
 		}
-		f.Close()
+		fmt.Printf("%sUsing 'main' as the name for the default branch.%s\n\n", colorYellow, colorReset)
+		fmt.Printf("%sBranches can be renamed via this command:%s\n", colorYellow, colorReset)
+		fmt.Printf("%s\tkitcat branch -m <branch_name>%s\n\n", colorYellow, colorReset)
+		fmt.Printf("%sList all the branches via this command:%s\n", colorYellow, colorReset)
+		fmt.Printf("%s\tkitcat branch -l%s\n", colorYellow, colorReset)
+	}
+	// Generating empty main branch file only if it does not exist.
+	mainBranchPath := filepath.Join(HeadsDir, "main")
+	if !isPathExist(mainBranchPath) {
+		if err := os.WriteFile(mainBranchPath, []byte(""), 0o644); err != nil {
+			return err
+		}
 	}
 
-	// Create the HEAD file to point to the default branch (main).
-	headContent := []byte("ref: refs/heads/main")
-	if err := os.WriteFile(HeadPath, headContent, 0o644); err != nil {
-		return err
-	}
-	fmt.Printf("%sUsing 'main' as the name for the default branch.%s\n\n", hint, hint)
-	fmt.Printf("%sBranches can be renamed via this command:%s\n", hint, hint)
-	fmt.Printf("%s\tkitcat branch -m <branch_name>%s\n\n", hint, hint)
-	fmt.Printf("%sList all the branches via this command:%s\n", hint, hint)
-	fmt.Printf("%s\tkitcat branch -l%s\n", hint, hint)
-	// Generating empty main branch file.
-	if err := os.WriteFile(HeadsDir+"/main", []byte(""), 0o644); err != nil {
-		return err
-	}
-
-	// Create default .kitignore to prevent self-tracking
+	// Create default .kitignore to prevent self-tracking only if it does not exist.
 	ignoreContent := []byte(".DS_Store\nkitcat\nkitcat.exe\n*.lock\n.kitignore\n")
-	if err := os.WriteFile(".kitignore", ignoreContent, 0o644); err != nil {
-		return err
+	if !isPathExist(".kitignore") {
+		if err := os.WriteFile(".kitignore", ignoreContent, 0o644); err != nil {
+			return err
+		}
 	}
 
 	if absPath, err := filepath.Abs(RepoDir); err != nil {
 		return err
 	} else {
-		fmt.Printf("%s\nInitialized empty kitcat repository in %s\n\n%s", hint, absPath, hint)
+		fmt.Printf("%s\nInitialized empty kitcat repository in %s\n\n%s", colorYellow, absPath, colorReset)
 	}
 	return nil
 }

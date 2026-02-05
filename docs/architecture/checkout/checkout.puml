@@ -1,0 +1,23 @@
+@startuml
+title Kitkat Checkout Activity Diagram
+
+start
+:User runs kitkat checkout [branch | file];
+
+if (Working directory dirty?) then (yes)
+  if (Changes would be overwritten?) then (yes)
+    :Abort checkout;
+    stop
+  else (no)
+    :Proceed with checkout;
+  endif
+else (no)
+endif
+
+:Load target commit tree;
+:Delete untracked files;
+:Write updated content to workspace;
+:Update HEAD reference;
+
+stop
+@enduml

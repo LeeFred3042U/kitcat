@@ -229,19 +229,19 @@ func readHead() (string, error) {
 // IsSafePath checks if a file path is safe to use (prevents path traversal attacks).
 // Returns false if the path attempts to escape the repository directory.
 func IsSafePath(path string) bool {
-	// Clean the path to normalize it
 	cleanPath := filepath.Clean(path)
-
-	// Check for absolute paths (should be relative)
 	if filepath.IsAbs(cleanPath) {
 		return false
 	}
-
-	// Check for path traversal attempts (..)
 	if strings.Contains(cleanPath, "..") {
 		return false
 	}
-
+	// Check for ASCII control characters (0x00-0x1F, 0x7F)
+	for _, r := range cleanPath {
+		if r < 32 || r == 127 {
+			return false
+		}
+	}
 	return true
 }
 
@@ -327,4 +327,40 @@ func SafeWrite(filename string, data []byte, perm os.FileMode) error {
 	// Sync Directory - only on Unix-like systems
 	// On Windows, syncing a directory causes "Access is denied" error
 	return syncDir(dirPath)
+}
+
+// EnsureArgs validates that the number of arguments is within [min, max].
+// passing max = -1 means no upper limit.
+// commandName is used for error messages.
+func EnsureArgs(args []string, min, max int, commandName string) {
+	if min < 0 {
+		panic(fmt.Sprintf("EnsureArgs: min arguments must be non-negative, got %d", min))
+	}
+	if max != -1 {
+		if max < 0 {
+			panic(fmt.Sprintf("EnsureArgs: max arguments must be non-negative (or -1 for no limit), got %d", max))
+		}
+		if max < min {
+			panic(fmt.Sprintf("EnsureArgs: max arguments (%d) cannot be less than min arguments (%d)", max, min))
+		}
+	}
+
+	count := len(args)
+	if count < min {
+		if min == 1 {
+			fmt.Printf("Error: %s command requires at least 1 argument\n", commandName)
+		} else {
+			fmt.Printf("Error: %s command requires at least %d arguments\n", commandName, min)
+		}
+		os.Exit(2)
+	}
+
+	if max != -1 && count > max {
+		if max == 0 {
+			fmt.Printf("Error: %s command does not accept arguments\n", commandName)
+		} else {
+			fmt.Printf("Error: %s command accepts at most %d arguments\n", commandName, max)
+		}
+		os.Exit(2)
+	}
 }

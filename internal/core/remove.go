@@ -48,19 +48,4 @@ func RemoveFile(filename string, force bool) error {
 		delete(index, filename)
 		return nil
 	})
-		}
-
-		// Step 1: Delete file from disk FIRST
-		if err := os.Remove(filename); err != nil {
-			// If file doesn't exist, that's OK (already deleted)
-			if !os.IsNotExist(err) {
-				// Permission error or other failure - return immediately
-				return err
-			}
-		}
-
-		// Step 2: Only update index if deletion succeeded (or file was already gone)
-		delete(index, filename)
-		return nil
-	})
 }

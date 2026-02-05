@@ -49,16 +49,29 @@ var commands = map[string]CommandFunc{
 	},
 
 	"rm": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitcat rm <file>")
+		force := false
+		files := make([]string, 0, len(args))
+
+		for _, arg := range args {
+			if arg == "-f" || arg == "--force" {
+				force = true
+			} else {
+				files = append(files, arg)
+			}
+		}
+
+		if len(files) < 1 {
+			fmt.Println("Usage: kitcat rm [-f] <file>")
 			os.Exit(2)
 		}
-		filename := args[0]
-		if err := core.RemoveFile(filename); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
+
+		for _, filename := range files {
+			if err := core.RemoveFile(filename, force); err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Removed '%s'\n", filename)
 		}
-		fmt.Printf("Removed '%s'\n", filename)
 		os.Exit(0)
 	},
 	"commit": func(args []string) {

@@ -56,7 +56,7 @@ var commands = map[string]CommandFunc{
 		}
 
 		recursive := false
-		filename := ""
+		filesToRemove := []string{}
 
 		i := 0
 		for i < len(args) {
@@ -65,20 +65,24 @@ var commands = map[string]CommandFunc{
 				recursive = true
 				i++
 			default:
-				filename = args[i]
+				filesToRemove = append(filesToRemove, args[i])
 				i++
 			}
 		}
 
-		if filename == "" {
+		if len(filesToRemove) == 0 {
 			fmt.Println("Usage: kitcat rm [-r] <file>")
 			os.Exit(2)
 		}
 
-		if err := core.RemoveFile(filename, recursive); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
+		exitCode := 0
+		for _, filename := range filesToRemove {
+			if err := core.RemoveFile(filename, recursive); err != nil {
+				fmt.Println("Error:", err)
+				exitCode = 1
+			}
 		}
+		os.Exit(exitCode)
 	},
 	"commit": func(args []string) {
 		if !core.IsRepoInitialized() {

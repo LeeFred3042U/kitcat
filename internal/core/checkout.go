@@ -110,9 +110,23 @@ func CheckoutBranch(name string) error {
 	// So the real Git would abort here
 	// For now, this is what i have done
 
+	// SAFETY CHECK: prevent overwriting untracked files that conflict with files in the target branch.
+	// This must run before we modify the working directory.
+	currentIndex, err := storage.LoadIndex()
+	if err != nil {
+		return err
+	}
+	for filePath := range targetTree {
+		if _, statErr := os.Stat(filePath); statErr == nil {
+			if _, tracked := currentIndex[filePath]; !tracked {
+				return fmt.Errorf("error: untracked file '%s' would be overwritten by checkout", filePath)
+			}
+		}
+	}
+
 	// Update the working directory to match the target tree
 	// First, delete files that are not in the target tree
-	currentIndex, _ := storage.LoadIndex()
+	// currentIndex loaded above for safety checks and deletion logic
 	for path := range currentIndex {
 		if _, existsInTarget := targetTree[path]; !existsInTarget {
 			os.Remove(path)

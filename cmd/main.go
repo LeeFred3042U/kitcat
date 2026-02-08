@@ -589,9 +589,9 @@ var commands = map[string]CommandFunc{
 				os.Exit(1)
 			}
 			os.Exit(0)
-		case "-r":
+		case "-r", "-m", "--move":
 			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: kitcat branch -r <branch-name>")
+				fmt.Fprintln(os.Stderr, "Usage: kitcat branch -r|-m|--move <branch-name>")
 				os.Exit(2)
 			}
 
@@ -600,6 +600,7 @@ var commands = map[string]CommandFunc{
 				fmt.Println("Error:", err)
 				os.Exit(1)
 			}
+			fmt.Println("Branch renamed to", name)
 			os.Exit(0)
 		case "-d", "--delete":
 			if len(args) < 2 {
@@ -755,17 +756,6 @@ func printCommitResult(newCommit models.Commit, summary string) {
 }
 
 func main() {
-	if len(os.Args) >= 4 && os.Args[1] == "branch" &&
-		(os.Args[2] == "-m" || os.Args[2] == "--move") {
-		newName := os.Args[3]
-		err := core.RenameCurrentBranch(newName)
-		if err != nil {
-			fmt.Println("Error renaming branch:", err)
-			os.Exit(1)
-		}
-		fmt.Println("Branch renamed to", newName)
-		os.Exit(0)
-	}
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: kitcat <command> [args]")
 		os.Exit(2)

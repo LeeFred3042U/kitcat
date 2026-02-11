@@ -1,122 +1,45 @@
 # Security Policy
 
-## Reporting Security Issues
+As a Version Control System (VCS), the integrity of repository data and the safety of the underlying filesystem are our highest priorities. We value the work of security researchers in identifying vulnerabilities that could lead to data loss or corruption.
 
-**Do NOT open a GitHub issue or pull request for security-related problems.**
+> [!IMPORTANT]
+> **Do NOT open a GitHub issue or pull request for security-related problems.** Publicly disclosing a vulnerability could allow malicious actors to exploit it before a patch is available.
 
-All security bugs, vulnerabilities, data corruption issues, or unsafe behaviors
-**must be reported privately by email**.
+## Supported Versions
 
-📧 **Send reports to:**  
-**zeeshanalavi1@gmail.com**
+| Version | Supported |
+| :--- | :--- |
+| Latest commit on `main` | Yes |
+| All other branches/tags | No |
 
-This includes (but is not limited to):
+Security fixes are currently provided **only for the latest commit on the `main` branch**. We recommend all users stay up to date to ensure maximum data protection.
 
-- Repository corruption
-- Data loss or silent failure
-- Index, object, or ref inconsistencies
-- Unsafe filesystem operations
-- Checkout/reset behavior that overwrites user data
-- Crashes that leave repos in an unrecoverable state
-- Any behavior that could break `.git` compatibility in the future
-
----
-
-## What Counts as a Security Issue
+## What Counts as a Security Issue?
 
 Treat the following as **security issues**, not normal bugs:
-
-- Silent corruption of `.kitcat` repositories
-- Incorrect handling of user data on disk
-- Overwriting files without explicit user intent
-- Unsafe defaults that can destroy local changes
-- Index/object mismatches that brick repositories
-- Crashes during write operations that leave partial state
-- Any bug that could cause permanent data loss
-
-If in doubt, **report it as a security issue**.
-
----
+* **Arbitrary Code Execution**: Vulnerabilities in the Go binary execution.
+* **Path Traversal**: Commands that could write/read files outside the intended `.kitcat` scope.
+* **Data Corruption**: Silent corruption of `.kitcat` repositories or index/object mismatches.
+* **Unsafe Filesystem Operations**: Checkout/reset behavior that destroys user data without intent.
 
 ## How to Report (Required Format)
 
-Your email **must** include the following:
+The maintainer aims to acknowledge reports promptly on a **best-effort basis**. Please email your report to: **zeeshanalavi1@gmail.com**.
 
-### 1. Summary
+To help us investigate, please include the following **VCS-specific details**:
 
-One or two sentences describing the issue.
+1. **Summary**: A brief description of the vulnerability.
+2. **Reproduction Steps**: Exact, minimal commands to trigger the issue.
+3. **Filesystem Type**: (e.g., ext4, NTFS, APFS, Btrfs) — *Critical for tracking data corruption bugs.*
+4. **Case Sensitivity**: Is the underlying filesystem case-sensitive?
+5. **Environment**: OS, Go version, and KitCat commit hash.
 
-### 2. Affected Area
+## Disclosure & Researcher Recognition
 
-Specify exactly what is affected:
-
-- Command(s)
-- Files or directories
-- Storage / index / object layer
-- Branch (main / develop)
-
-### 3. Reproduction Steps
-
-Exact, minimal steps to reproduce the issue.
-Include commands run and files touched.
-
-### 4. Impact
-
-Explain what can go wrong:
-
-- Data loss
-- Repo corruption
-- Incorrect behavior
-- Crash / denial of service
-
-### 5. Environment
-
-- OS
-- KitCat version / commit hash
-- Go version
-
-Reports missing this information may be ignored.
+1. We will assess the report internally and develop fixes privately.
+2. Once a patch is merged, researchers will be **credited in the Release Notes** and acknowledged in the **Commit Messages**.
+3. Public disclosure will occur only after a fix is available on `main`.
 
 ---
-
-## What NOT to Do
-
-- ❌ Do NOT open a public GitHub issue for security problems
-- ❌ Do NOT submit a pull request attempting to “fix” a security issue
-- ❌ Do NOT discuss security issues publicly before maintainers respond
-- ❌ Do NOT attach large archives or binaries without asking first
-
-Security fixes require coordination and may involve design decisions.
-Unreviewed PRs touching sensitive areas will be closed.
-
----
-
-## Disclosure & Fix Process
-
-- We will acknowledge receipt of your report.
-- We will assess severity and impact internally.
-- Fixes will be developed privately if needed.
-- Public disclosure (if any) will happen **after** a fix is available.
-
-There is **no guaranteed response time**, but high-impact issues are prioritized.
-
----
-
-## Relationship to Contributions
-
-Security issues are **not** normal contributions.
-
-- Normal bugs → GitHub issues + PRs (see `CONTRIBUTING.md`)
-- Security issues → **private email only**
-- PRs touching security-sensitive areas without prior coordination will be rejected
-
-This policy exists to protect users from data loss and maintain repository integrity
-
----
-
-## Final Note
-
-If your report involves `.git`, `.kitcat`, object storage, index files, or checkout/reset behavior, assume it is security-sensitive and report it privately
-
-When in doubt: **email first**
-
+> [!CAUTION]
+> **Disclaimer:** kitcat is an educational "toy" project. While we strive for security, do not use it as your primary version control for production-critical data.

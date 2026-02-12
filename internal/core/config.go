@@ -19,7 +19,7 @@ func getConfigPath() (string, error) {
 
 // getLocalConfigPath returns the absolute path to the local repository config file
 func getLocalConfigPath() (string, error) {
-	localConfigPath := filepath.Join(RepoDir, ".kitcat", "config")
+	localConfigPath := filepath.Join(RepoDir, "config")
 	return localConfigPath, nil
 }
 

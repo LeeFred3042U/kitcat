@@ -112,6 +112,10 @@ var commands = map[string]CommandFunc{
 		// Normal commit flow
 		case "-am":
 			message = strings.Join(args[1:], " ")
+			if strings.TrimSpace(message) == "" {
+				fmt.Println("Error: commit message cannot be empty")
+				os.Exit(1)
+			}
 			newCommit, summary, err := core.CommitAll(message)
 			if err != nil {
 				if err.Error() == "nothing to commit, working tree clean" {
@@ -131,6 +135,10 @@ var commands = map[string]CommandFunc{
 
 		// Handle amend or normal commit
 		if isAmend {
+			if strings.TrimSpace(message) == "" {
+				fmt.Println("Error: commit message cannot be empty")
+				os.Exit(1)
+			}
 			newCommit, err := core.AmendCommit(message)
 			if err != nil {
 				fmt.Println("Error:", err)
@@ -145,6 +153,10 @@ var commands = map[string]CommandFunc{
 			fmt.Printf("[%s %s] %s (amended)\n", headState, newCommit.ID[:7], newCommit.Message)
 			os.Exit(0)
 		} else {
+			if strings.TrimSpace(message) == "" {
+				fmt.Println("Error: commit message cannot be empty")
+				os.Exit(1)
+			}
 			newCommit, summary, err := core.Commit(message)
 			if err != nil {
 				if err.Error() == "nothing to commit, working tree clean" {

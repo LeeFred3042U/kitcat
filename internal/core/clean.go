@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,68 +9,90 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// Removes untracked files from the working directory
-// If includeIgnored is false, ignored files are preserved
-// If includeIgnored is true, ignored files are also removed
-func Clean(dryRun bool, includeIgnored bool) error {
-	// Guard: ensure we're inside a kitkat repo
-	if _, err := os.Stat(RepoDir); os.IsNotExist(err) {
-		return errors.New("not a kitkat repository (run `kitkat init`)")
-	}
-
+// Clean removes untracked files from the working directory.
+// If dryRun is true, it only lists files that would be removed.
+func Clean(dryRun bool) error {
+	// Load the index to check which files are tracked
 	index, err := storage.LoadIndex()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load index: %w", err)
 	}
 
-	// Load ignore patterns
-	ignorePatterns, err := LoadIgnorePatterns()
+	// Load ignore patterns to preserve ignored files
+	patterns, err := LoadIgnorePatterns()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load ignore patterns: %w", err)
 	}
+
+	// Build proxy map for ShouldIgnore compatibility
+	proxyIndex := make(map[string]string, len(index))
+	for k := range index {
+		proxyIndex[k] = ""
+	}
+
+	var toRemove []string
 
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		clean := filepath.Clean(path)
-
-		// skip the repo dir and everything under it
-		if clean == RepoDir || strings.HasPrefix(clean, RepoDir+string(os.PathSeparator)) {
+		// Skip the .kitcat directory
+		if path == RepoDir || strings.HasPrefix(path, RepoDir+string(os.PathSeparator)) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		// skip directories and the root marker "."
-		if info.IsDir() || clean == "." {
+		// We only clean files, not directories (unless empty, but git clean usually cleans files)
+		if info.IsDir() {
 			return nil
 		}
 
-		// if not tracked, remove (or print if dry run)
-		if _, tracked := index[clean]; !tracked {
-			// Check if file is ignored
-			isIgnored := ShouldIgnore(clean, ignorePatterns, index)
+		// Clean path
+		cleanPath := filepath.Clean(path)
 
-			// Skip ignored files unless -x flag is set
-			if isIgnored && !includeIgnored {
-				return nil
-			}
-
-			if dryRun {
-				if isIgnored {
-					fmt.Printf("Would remove (ignored) %s\n", clean)
-				} else {
-					fmt.Printf("Would remove %s\n", clean)
-				}
-				return nil
-			}
-			fmt.Printf("Removing %s\n", clean)
-			return os.Remove(clean)
+		// 1. Skip if tracked
+		if _, tracked := index[cleanPath]; tracked {
+			return nil
 		}
+
+		// 2. Skip if ignored
+		if ShouldIgnore(cleanPath, patterns, proxyIndex) {
+			return nil
+		}
+
+		// If untracked and not ignored, verify safety and mark for removal
+		if IsSafePath(cleanPath) {
+			toRemove = append(toRemove, cleanPath)
+		}
+
 		return nil
 	})
-	return err
+
+	if err != nil {
+		return err
+	}
+
+	if len(toRemove) == 0 {
+		if dryRun {
+			fmt.Println("No files to clean.")
+		}
+		return nil
+	}
+
+	for _, file := range toRemove {
+		if dryRun {
+			fmt.Printf("Would remove %s\n", file)
+		} else {
+			if err := os.Remove(file); err != nil {
+				fmt.Printf("warning: failed to remove %s: %v\n", file, err)
+			} else {
+				fmt.Printf("Removing %s\n", file)
+			}
+		}
+	}
+
+	return nil
 }

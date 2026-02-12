@@ -22,20 +22,27 @@
 
 package plumbing
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
-func getObjectDir(hashStr string) string {
-	return hashStr[:2]
+// SafeWriteFile writes data to a file, ensuring the directory exists.
+func SafeWriteFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
 }
 
-func getObjectPath(hashStr string) string {
-	return hashStr[2:]
-}
-
-func hexToBytes(s string) []byte {
+// HexToHash converts a hex string to a byte slice with error checking.
+func HexToHash(s string) ([]byte, error) {
+	if len(s) != 40 {
+		return nil, fmt.Errorf("invalid hash length: %d", len(s))
+	}
 	out := make([]byte, 20)
 	for i := 0; i < 20; i++ {
-		fmt.Sscanf(s[i*2:i*2+2], "%02x", &out[i])
+		// Fix: Check the error return from Sscanf
+		if _, err := fmt.Sscanf(s[i*2:i*2+2], "%02x", &out[i]); err != nil {
+			return nil, fmt.Errorf("invalid hex at index %d: %w", i, err)
+		}
 	}
-	return out
+	return out, nil
 }

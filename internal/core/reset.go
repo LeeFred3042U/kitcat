@@ -6,39 +6,51 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// ResetHard moves the current branch (or HEAD in detached state) to the specified commit
-// and forcibly updates the working directory and index to match that commit.
-// WARNING: This is a destructive operation that discards all uncommitted changes.
-func ResetHard(commitHash string) error {
-	// Step 1: Validate that the commit exists
-	commit, err := storage.FindCommit(commitHash)
+const (
+	ResetMixed = 0
+	ResetSoft  = 1
+	ResetHard  = 2
+)
+
+// Reset moves the current HEAD to the specified commit and updates index/worktree depending on mode.
+func Reset(commitStr string, mode int) error {
+	// 1. Resolve target commit
+	commit, err := storage.FindCommit(commitStr)
 	if err != nil {
-		if err == storage.ErrNoCommits {
-			return fmt.Errorf("fatal: invalid commit: %s", commitHash)
-		}
-		return fmt.Errorf("fatal: invalid commit: %s", commitHash)
+		return fmt.Errorf("invalid commit %s: %w", commitStr, err)
 	}
 
-	// Step 2: Save current HEAD for potential rollback
-	oldHeadCommit, err := readHead()
-	if err != nil {
-		return fmt.Errorf("fatal: unable to read HEAD file: %w", err)
-	}
-
-	// Step 3: Update the branch pointer or HEAD
-	if err := UpdateBranchPointer(commitHash); err != nil {
+	// 2. Move HEAD (Soft/Mixed/Hard)
+	// We use the helper to safely update HEAD or the Branch Ref
+	if err := UpdateBranchPointer(commit.ID); err != nil {
 		return err
 	}
 
-	// Step 4: Update workspace and index to match the target commit
-	// If this fails, attempt to roll back the branch pointer
-	if err := UpdateWorkspaceAndIndex(commitHash); err != nil {
-		// Attempt rollback
-		_ = UpdateBranchPointer(oldHeadCommit)
-		return fmt.Errorf("failed to update workspace: %w", err)
+	// --soft: Move HEAD only. Index and Workdir left alone.
+	if mode == ResetSoft {
+		return nil
 	}
 
-	// Step 5: Success - print confirmation message
-	fmt.Printf("HEAD is now at %s %s\n", commitHash[:7], commit.Message)
-	return nil
+	// 3. Update Index (Mixed & Hard)
+	tree, err := storage.ParseTree(commit.TreeHash)
+	if err != nil {
+		return err
+	}
+
+	// Write the target tree into the index.
+	// This makes the index match the commit we just reset to.
+	if err := storage.WriteIndexFromTree(tree); err != nil {
+		return err
+	}
+
+	// --mixed: Move HEAD and update Index. Workdir left alone.
+	if mode == ResetMixed {
+		return nil
+	}
+
+	// 4. Update Working Tree (Hard)
+	// --hard: Force the working directory to match the commit.
+	// This includes deleting files that are not in the commit and restoring files that are.
+	// UpdateWorkspaceAndIndex handles the sync of Disk <-> Commit Tree.
+	return UpdateWorkspaceAndIndex(commit.ID)
 }

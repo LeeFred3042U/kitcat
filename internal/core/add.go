@@ -7,117 +7,184 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-func AddFile(path string) error {
-	if !IsSafePath(path) {
-		return fmt.Errorf("unsafe path detected: %s", path)
-	}
-	// Guard: ensure we're inside a kitkat repo
+func AddFile(inputPath string) error {
 	if _, err := os.Stat(RepoDir); os.IsNotExist(err) {
-		return errors.New("not a kitkat repository (run `kitkat init`)")
+		return errors.New("not a kitcat repository (run `kitcat init`)")
 	}
 
-	hash, err := storage.HashAndStoreFile(path)
+	absInputPath, err := filepath.Abs(inputPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
-
-	index, err := storage.LoadIndex()
+	absRepoRoot, err := filepath.Abs(".")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to resolve repo root: %w", err)
 	}
 
-	// Skip if already tracked with same hash
-	if existing, ok := index[path]; ok && existing == hash {
-		return nil
+	if _, err := os.Stat(absInputPath); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist: %s", inputPath)
 	}
 
-	index[path] = hash
-	return storage.WriteIndex(index)
-}
-
-// AddAll stages all changes in the working directory.
-// This includes new files, modified files, and deleted files.
-func AddAll() error {
-	// Load the current index from the last known state.
-	// This map represents what we *think* is currently staged.
-	index, err := storage.LoadIndex()
-	if err != nil {
-		return err
-	}
-
-	// Load ignore patterns
-	ignorePatterns, err := LoadIgnorePatterns()
-	if err != nil {
-		return err
-	}
-
-	// We need a way to track which files we see in the working directory
-	// A map is used for this, giving us O(1) average time complexity for lookups
-	filesInWorkDir := make(map[string]bool)
-
-	// Walk the entire directory tree, starting from the current location "."
-	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		ignorePatterns, err := LoadIgnorePatterns()
 		if err != nil {
 			return err
 		}
 
-		// Clean the path to use consistent separators.
-		cleanPath := filepath.Clean(path)
-
-		if !IsSafePath(cleanPath) {
-			fmt.Printf("warning: skipping unsafe path: %s\n", cleanPath)
-			return nil // Just skip unsafe paths found during a walk
+		proxyIndex := make(map[string]string, len(index))
+		for k := range index {
+			proxyIndex[k] = ""
 		}
 
-		// IMPORTANT: Skip the .kitkat directory entirely to avoid tracking our own database files.
-		if strings.HasPrefix(cleanPath, RepoDir+string(os.PathSeparator)) || cleanPath == RepoDir {
-			if info.IsDir() {
-				return filepath.SkipDir // This is an efficient way to stop descending into a directory.
+		return filepath.Walk(absInputPath, func(fullPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
 			}
+
+			relPath, err := filepath.Rel(absRepoRoot, fullPath)
+			if err != nil {
+				return fmt.Errorf("file %s is outside repository", fullPath)
+			}
+			cleanPath := filepath.Clean(relPath)
+
+			if cleanPath == "." || strings.HasPrefix(cleanPath, RepoDir) {
+				if info.IsDir() && cleanPath != "." {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			if info.IsDir() {
+				return nil
+			}
+
+			if !IsSafePath(cleanPath) {
+				return nil
+			}
+			if ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
+				return nil
+			}
+
+			entry := plumbing.IndexEntry{
+				Path:      cleanPath,
+				Mode:      0100644,
+				Size:      uint32(info.Size()),
+				MTimeSec:  uint32(info.ModTime().Unix()),
+				MTimeNSec: uint32(info.ModTime().Nanosecond()),
+			}
+
+			// Optimization: Metadata Check
+			if existing, exists := index[cleanPath]; exists {
+				if existing.Size == entry.Size && existing.MTimeSec == entry.MTimeSec {
+					return nil
+				}
+			}
+
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				return fmt.Errorf("failed to read %s: %w", fullPath, err)
+			}
+
+			hashStr, err := plumbing.HashAndWriteObject(content, "blob")
+			if err != nil {
+				return fmt.Errorf("failed to write blob for %s: %w", cleanPath, err)
+			}
+
+			hashBytes, _ := storage.HexToHash(hashStr)
+			entry.Hash = hashBytes
+
+			index[cleanPath] = entry
 			return nil
-		}
+		})
+	})
+}
 
-		// We only care about files, not directories
-		if info.IsDir() {
-			return nil
-		}
-
-		// Check if file should be ignored (but only if not already tracked)
-		if ShouldIgnore(cleanPath, ignorePatterns, index) {
-			return nil // Skip this file
-		}
-
-		// Mark this file as "seen" in the working directory
-		filesInWorkDir[cleanPath] = true
-
-		// Hash the file and add/update it in the index.
-		// This is the same logic as AddFile, but applied to every file we find
-		hash, err := storage.HashAndStoreFile(cleanPath)
+func AddAll() error {
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		ignorePatterns, err := LoadIgnorePatterns()
 		if err != nil {
-			// Continue even if one file fails.
-			fmt.Printf("warning: could not add file %s: %v\n", cleanPath, err)
-			return nil
+			return err
 		}
-		index[cleanPath] = hash
+
+		proxyIndex := make(map[string]string, len(index))
+		for k := range index {
+			proxyIndex[k] = ""
+		}
+
+		seen := make(map[string]bool, len(index))
+		rootDir, _ := filepath.Abs(".")
+
+		err = filepath.Walk(rootDir, func(fullPath string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			relPath, _ := filepath.Rel(rootDir, fullPath)
+			cleanPath := filepath.Clean(relPath)
+
+			if cleanPath == "." || strings.HasPrefix(cleanPath, RepoDir) {
+				if info.IsDir() && cleanPath != "." {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			if !IsSafePath(cleanPath) {
+				return nil
+			}
+			if ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
+				return nil
+			}
+
+			seen[cleanPath] = true
+
+			if existing, exists := index[cleanPath]; exists {
+				if existing.Size == uint32(info.Size()) && existing.MTimeSec == uint32(info.ModTime().Unix()) {
+					return nil
+				}
+			}
+
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				return err
+			}
+			hashStr, err := plumbing.HashAndWriteObject(content, "blob")
+			if err != nil {
+				return err
+			}
+			hashBytes, _ := storage.HexToHash(hashStr)
+
+			entry := plumbing.IndexEntry{
+				Path:      cleanPath,
+				Hash:      hashBytes,
+				Mode:      0100644,
+				Size:      uint32(info.Size()),
+				MTimeSec:  uint32(info.ModTime().Unix()),
+				MTimeNSec: uint32(info.ModTime().Nanosecond()),
+			}
+			index[cleanPath] = entry
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		var toDelete []string
+		for path := range index {
+			if !seen[path] {
+				toDelete = append(toDelete, path)
+			}
+		}
+		for _, path := range toDelete {
+			delete(index, path)
+		}
+
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	// Find and handle deleted files.
-	// We loop through the original index. If a file from the index was NOT seen
-	// during our walk of the working directory, it must have been deleted
-	for pathInIndex := range index {
-		if !filesInWorkDir[pathInIndex] {
-			// Remove the deleted file from our index map
-			delete(index, pathInIndex)
-		}
-	}
-
-	// Write the fully updated index back to disk
-	return storage.WriteIndex(index)
 }

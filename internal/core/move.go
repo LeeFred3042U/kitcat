@@ -1,54 +1,36 @@
 package core
 
 import (
-	"errors"
+	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-func MoveFile(oldPath, newPath string, force bool) error {
-	if oldPath == newPath {
-		return errors.New("source and destination paths are the same")
+func MoveFile(src, dst string, force bool) error {
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return fmt.Errorf("source '%s' does not exist", src)
 	}
-
-	// If force is true, overwrites destination
-	// If not returns error if destination path already exists
-	if force {
-		if err := os.RemoveAll(newPath); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		if _, err := os.Stat(newPath); err == nil {
-			return errors.New("destination path already exists")
-		} else if !os.IsNotExist(err) {
-			return err
+	if !force {
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("destination '%s' exists (use -f to force)", dst)
 		}
 	}
 
-	// Rename file
-	if err := os.Rename(oldPath, newPath); err != nil {
+	if err := os.Rename(src, dst); err != nil {
 		return err
 	}
 
-	// Stage new file
-	if err := AddFile(newPath); err != nil {
-		return err
-	}
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		entry, ok := index[src]
+		if !ok {
+			return nil
+		} // Untracked
 
-	// Load index
-	idx, err := storage.LoadIndex()
-	if err != nil {
-		return err
-	}
-
-	// Remove old file from index
-	delete(idx, oldPath)
-
-	// Write index
-	if err := storage.WriteIndex(idx); err != nil {
-		return err
-	}
-
-	return nil
+		delete(index, src)
+		entry.Path = dst
+		index[dst] = entry
+		return nil
+	})
 }

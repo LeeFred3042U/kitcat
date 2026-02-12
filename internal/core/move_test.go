@@ -24,7 +24,7 @@ func TestMoveFile(t *testing.T) {
 	}
 
 	// Initialize kitkat repository
-	if err := InitRepo(); err != nil {
+	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,21 +68,17 @@ func TestMoveFile(t *testing.T) {
 }
 
 func TestMoveFile_DestinationExists(t *testing.T) {
-	// Restores the current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(cwd)
-
-	// Create temp directory
 	tmpDir := t.TempDir()
+	cwd, _ := os.Getwd() // assuming no error in test setup
+	
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatal(err)
 	}
-
-	// Initialize kitkat repository
-	if err := InitRepo(); err != nil {
+	defer func() {
+		_ = os.Chdir(cwd) // Ignore error in cleanup
+	}()
+	
+	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +143,7 @@ func TestMoveFile_SamePath(t *testing.T) {
 	os.Chdir(tmpDir)
 
 	// Initialize kitkat repository
-	if err := InitRepo(); err != nil {
+	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,74 +1,97 @@
 package storage
 
 import (
-	"encoding/json"
-	"fmt"
+	"encoding/hex"
 	"os"
-	"path/filepath"
+	"sort"
+
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 )
 
-const indexPath = ".kitkat/index"
+const IndexPath = ".kitcat/index"
 
-// LoadIndex reads the .kitkat/index file (in JSON format) and returns it as a map
-// It returns an empty map if the file doesn't exist, which is normal for a new repository
-func LoadIndex() (map[string]string, error) {
-	index := make(map[string]string)
-
-	content, err := os.ReadFile(indexPath)
+func LoadIndex() (map[string]plumbing.IndexEntry, error) {
+	// Read-only operations might not strict locking for MVP,
+	// but writing absolutely does.
+	entries, err := plumbing.ReadIndex(IndexPath)
 	if os.IsNotExist(err) {
-		// File doesn't exist, return empty index. This is not an error ^-^
-		return index, nil
+		return make(map[string]plumbing.IndexEntry), nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("could not read index file: %w", err)
+		return nil, err
 	}
-
-	// If the file is empty, avoid a JSON error.
-	if len(content) == 0 {
-		return index, nil
+	indexMap := make(map[string]plumbing.IndexEntry, len(entries))
+	for _, e := range entries {
+		indexMap[e.Path] = e
 	}
-
-	if err := json.Unmarshal(content, &index); err != nil {
-		return nil, fmt.Errorf("could not parse index file: %w", err)
-	}
-
-	return index, nil
+	return indexMap, nil
 }
 
-// WriteIndex writes the index map to the .kitkat/index file atomically using a JSON format
-// It uses a temporary file and an atomic rename to prevent corruption 'o'
-func WriteIndex(index map[string]string) error {
-	// Ensure the parent directory (.kitkat) exists.
-	if err := os.MkdirAll(filepath.Dir(indexPath), 0755); err != nil {
-		return err
-	}
-
-	// Lock the file to prevent concurrent writes
-	l, err := lock(indexPath)
+// UpdateIndex handles the transaction, converting the map back to a sorted slice.
+func UpdateIndex(fn func(index map[string]plumbing.IndexEntry) error) error {
+	// FIX: Re-enable locking mechanism
+	l, err := lock(IndexPath)
 	if err != nil {
 		return err
 	}
 	defer unlock(l)
 
-	// Use a temporary file for the initial write
-	tmpPath := indexPath + ".tmp"
-	file, err := os.Create(tmpPath)
+	indexMap, err := LoadIndex()
 	if err != nil {
 		return err
 	}
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-
-	err = encoder.Encode(index)
-	// Must close the file before renaming it
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
+	if err := fn(indexMap); err != nil {
 		return err
 	}
 
-	// Atomically rename the temporary file to the final index file
-	return os.Rename(tmpPath, indexPath)
+	return writeMapToDisk(indexMap)
+}
+
+// WriteIndex is used by legacy tests or simple overwrites
+func WriteIndex(simpleMap map[string]string) error {
+	return WriteIndexFromTree(simpleMap)
+}
+
+func WriteIndexFromTree(tree map[string]string) error {
+	// FIX: Re-enable locking mechanism
+	l, err := lock(IndexPath)
+	if err != nil {
+		return err
+	}
+	defer unlock(l)
+
+	indexMap := make(map[string]plumbing.IndexEntry)
+	for path, hash := range tree {
+		hb, _ := HexToHash(hash)
+		indexMap[path] = plumbing.IndexEntry{
+			Path: path,
+			Hash: hb,
+			Mode: 0100644,
+		}
+	}
+	return writeMapToDisk(indexMap)
+}
+
+func writeMapToDisk(indexMap map[string]plumbing.IndexEntry) error {
+	var entries []plumbing.IndexEntry
+	for _, e := range indexMap {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+
+	if err := os.MkdirAll(".kitcat", 0755); err != nil {
+		return err
+	}
+	return plumbing.UpdateIndex(entries, IndexPath)
+}
+
+func HexToHash(s string) ([20]byte, error) {
+	var out [20]byte
+	slice, err := hex.DecodeString(s)
+	if err != nil {
+		return out, err
+	}
+	copy(out[:], slice)
+	return out, nil
 }

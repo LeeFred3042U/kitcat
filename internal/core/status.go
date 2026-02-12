@@ -4,127 +4,121 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// Status compares the state of the working directory, index, and last commit,
-// then prints a summary of the changes
-func Status() error {
-	// Print the current branch status at the top
-	headState, err := GetHeadState()
-	if err != nil {
-		headState = "no commits yet"
-	}
-	fmt.Printf("On branch %s\n", headState)
-
-	// Load the tree from the commit that HEAD points to
-	// Note: We use GetHeadCommit() instead of storage.GetLastCommit() because
-	// after a reset, HEAD might point to an earlier commit than the last in the log
-	headTree := make(map[string]string)
-	headCommit, err := GetHeadCommit()
-	if err == nil {
-		tree, parseErr := storage.ParseTree(headCommit.TreeHash)
-		if parseErr != nil {
-			return parseErr
-		}
-		headTree = tree
-	} else if err != storage.ErrNoCommits {
-		return err
-	}
-
-	// Load the current staging area
+func Status() (string, error) {
 	index, err := storage.LoadIndex()
 	if err != nil {
-		return err
+		return "", fmt.Errorf("failed to load index: %w", err)
 	}
 
-	// Load ignore patterns
-	ignorePatterns, err := LoadIgnorePatterns()
-	if err != nil {
-		return err
+	headTree := make(map[string]string)
+	if headCommit, err := storage.GetLastCommit(); err == nil {
+		headTree, _ = storage.ParseTree(headCommit.TreeHash)
 	}
 
-	// Prepare slices to hold the categorized changes
-	stagedChanges := []string{}
-	unstagedChanges := []string{}
-	untrackedFiles := []string{}
-
-	// Create a set of all file paths from both HEAD and the index for a complete comparison
-	allPaths := make(map[string]bool)
-	for path := range headTree {
-		allPaths[path] = true
-	}
-	for path := range index {
-		allPaths[path] = true
-	}
-
-	// Categorize Staged Changes (Index vs. HEAD)
-	for path := range allPaths {
-		headHash, inHead := headTree[path]
-		indexHash, inIndex := index[path]
-
-		if inIndex && !inHead {
-			stagedChanges = append(stagedChanges, fmt.Sprintf("new file:  %s", path))
-		} else if !inIndex && inHead {
-			stagedChanges = append(stagedChanges, fmt.Sprintf("deleted:   %s", path))
-		} else if inIndex && inHead && headHash != indexHash {
-			stagedChanges = append(stagedChanges, fmt.Sprintf("modified:  %s", path))
-		}
-	}
-
-	// Categorize Unstaged & Untracked Changes (Working Directory vs. Index)
-	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		cleanPath := filepath.Clean(path)
-
-		// Skip the .kitkat directory and other directories
-		if info.IsDir() || strings.HasPrefix(cleanPath, RepoDir+string(os.PathSeparator)) || cleanPath == RepoDir {
-			return nil
-		}
-
-		indexHash, isTracked := index[cleanPath]
-
-		// If the file is not in the index, it's untracked
-		if !isTracked {
-			// Check if file should be ignored
-			if ShouldIgnore(cleanPath, ignorePatterns, index) {
-				return nil // Skip ignored files
+	var staged []string
+	for path, entry := range index {
+		entryHashHex := fmt.Sprintf("%x", entry.Hash)
+		if headHash, inHead := headTree[path]; inHead {
+			if entryHashHex != headHash {
+				staged = append(staged, fmt.Sprintf("modified:   %s", path))
 			}
-			untrackedFiles = append(untrackedFiles, cleanPath)
+		} else {
+			staged = append(staged, fmt.Sprintf("new file:   %s", path))
+		}
+	}
+
+	for path := range headTree {
+		if _, inIndex := index[path]; !inIndex {
+			staged = append(staged, fmt.Sprintf("deleted:    %s", path))
+		}
+	}
+
+	var notStaged []string
+	var untracked []string
+
+	ignorePatterns, _ := LoadIgnorePatterns()
+	proxyIndex := make(map[string]string, len(index))
+	for k := range index {
+		proxyIndex[k] = ""
+	}
+
+	walkErr := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil { return nil }
+		if path == "." || path == RepoDir || strings.HasPrefix(path, RepoDir+string(os.PathSeparator)) {
+			if info.IsDir() && path != "." { return filepath.SkipDir }
 			return nil
 		}
+		if info.IsDir() { return nil }
 
-		// If the file is tracked, hash it and compare with the index to see if it's been modified
-		currentHash, hashErr := storage.HashFile(cleanPath)
-		if hashErr != nil {
-			return hashErr
-		}
-		if currentHash != indexHash {
-			unstagedChanges = append(unstagedChanges, fmt.Sprintf("modified:  %s", cleanPath))
+		cleanPath := filepath.Clean(path)
+		if !IsSafePath(cleanPath) { return nil }
+
+		if entry, tracked := index[cleanPath]; tracked {
+			if entry.Size != uint32(info.Size()) || entry.MTimeSec != uint32(info.ModTime().Unix()) {
+				hash, err := storage.HashFile(cleanPath)
+				if err == nil {
+					entryHashHex := fmt.Sprintf("%x", entry.Hash)
+					if hash != entryHashHex {
+						notStaged = append(notStaged, fmt.Sprintf("modified:   %s", cleanPath))
+					}
+				}
+			}
+		} else {
+			if !ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
+				untracked = append(untracked, cleanPath)
+			}
 		}
 		return nil
 	})
-	if err != nil {
-		return err
+
+	if walkErr != nil {
+		return "", walkErr
 	}
 
-	// Print Final Summary
-	fmt.Println("\nChanges to be committed:")
-	for _, change := range stagedChanges {
-		fmt.Printf("\t%s\n", change)
-	}
-	fmt.Println("\nChanges not staged for commit:")
-	for _, change := range unstagedChanges {
-		fmt.Printf("\t%s\n", change)
-	}
-	fmt.Println("\nUntracked files:")
-	for _, file := range untrackedFiles {
-		fmt.Printf("\t%s\n", file)
+	for path := range index {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			notStaged = append(notStaged, fmt.Sprintf("deleted:    %s", path))
+		}
 	}
 
-	return nil
+	sort.Strings(staged)
+	sort.Strings(notStaged)
+	sort.Strings(untracked)
+
+	var sb strings.Builder
+	if len(staged) == 0 && len(notStaged) == 0 && len(untracked) == 0 {
+		return "nothing to commit, working tree clean", nil
+	}
+
+	if len(staged) > 0 {
+		sb.WriteString("Changes to be committed:\n")
+		for _, s := range staged {
+			sb.WriteString(fmt.Sprintf("  \033[32m%s\033[0m\n", s))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(notStaged) > 0 {
+		sb.WriteString("Changes not staged for commit:\n")
+		for _, s := range notStaged {
+			sb.WriteString(fmt.Sprintf("  \033[31m%s\033[0m\n", s))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(untracked) > 0 {
+		sb.WriteString("Untracked files:\n")
+		for _, s := range untracked {
+			sb.WriteString(fmt.Sprintf("  \033[31m%s\033[0m\n", s))
+		}
+		sb.WriteString("\n")
+	}
+
+	return strings.TrimSpace(sb.String()), nil
 }

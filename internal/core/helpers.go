@@ -1,17 +1,18 @@
 package core
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/models"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// UpdateWorkspaceAndIndex resets the working directory and index to match a specific commit.
-// This is shared logic used by checkout, merge, and reset commands.
+// UpdateWorkspaceAndIndex resets working dir and index to match commit
 func UpdateWorkspaceAndIndex(commitHash string) error {
 	commit, err := storage.FindCommit(commitHash)
 	if err != nil {
@@ -22,15 +23,13 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 		return err
 	}
 
-	// Delete files from the current index that are not in the target tree
 	currentIndex, _ := storage.LoadIndex()
 	for path := range currentIndex {
-		if _, existsInTarget := targetTree[path]; !existsInTarget {
+		if _, exists := targetTree[path]; !exists {
 			os.Remove(path)
 		}
 	}
 
-	// Write/update files from the target tree
 	for path, hash := range targetTree {
 		content, err := storage.ReadObject(hash)
 		if err != nil {
@@ -39,59 +38,118 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
-		if err := SafeWrite(path, content, 0644); err != nil {
+		if err := os.WriteFile(path, content, 0644); err != nil {
 			return err
 		}
 	}
 
-	// Update the index to match the new tree
+	// Update Index using the target tree map
 	return storage.WriteIndex(targetTree)
 }
 
-// GetHeadState returns the current branch name or detached HEAD state.
-// Returns the branch name (e.g., "main") if on a branch, or a detached HEAD description.
+// GetHeadState returns the current branch name or commit hash if detached
 func GetHeadState() (string, error) {
-	headData, err := os.ReadFile(HeadPath)
+	headContent, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
 		return "", err
 	}
-	ref := strings.TrimSpace(string(headData))
-
-	// Check if HEAD points to a branch
-	if strings.HasPrefix(ref, "ref: ") {
-		refPath := strings.TrimPrefix(ref, "ref: ")
-		// Extract branch name from refs/heads/<branch>
-		if strings.HasPrefix(refPath, "refs/heads/") {
-			return strings.TrimPrefix(refPath, "refs/heads/"), nil
-		}
-		return refPath, nil
+	content := strings.TrimSpace(string(headContent))
+	if strings.HasPrefix(content, "ref: refs/heads/") {
+		return strings.TrimPrefix(content, "ref: refs/heads/"), nil
 	}
-
-	// Detached HEAD - ref contains a commit hash
-	if len(ref) >= 7 {
-		return fmt.Sprintf("HEAD (detached at %s)", ref[:7]), nil
-	}
-	return "HEAD (detached)", nil
+	return content, nil
 }
 
-// IsWorkDirDirty checks if there are uncommitted changes in the working directory or staging area.
-// Returns true if there are any staged or unstaged changes, false if the working tree is clean.
+// IsDetachedHead checks if the repository is in detached HEAD state
+func IsDetachedHead() (bool, error) {
+	headContent, err := os.ReadFile(".kitcat/HEAD")
+	if err != nil {
+		return false, err
+	}
+	return !strings.HasPrefix(string(headContent), "ref: "), nil
+}
+
+// VerifyCleanTree checks if the working directory matches the current HEAD
+func VerifyCleanTree() error {
+	index, err := storage.LoadIndex()
+	if err != nil {
+		return err
+	}
+
+	head, err := storage.GetLastCommit()
+	if err != nil {
+		if err == storage.ErrNoCommits && len(index) == 0 {
+			return nil
+		}
+		return err
+	}
+
+	headTree, err := storage.ParseTree(head.TreeHash)
+	if err != nil {
+		return err
+	}
+
+	if len(index) != len(headTree) {
+		return fmt.Errorf("working tree is dirty")
+	}
+
+	for path, entry := range index {
+		headHash, ok := headTree[path]
+		if !ok {
+			return fmt.Errorf("dirty: %s", path)
+		}
+
+		// Fix: Convert [20]byte to hex string
+		entryHashHex := hex.EncodeToString(entry.Hash[:])
+		if entryHashHex != headHash {
+			return fmt.Errorf("dirty: %s", path)
+		}
+	}
+	return nil
+}
+
+// RestoreIndexFromCommit updates the index to match a specific commit
+func RestoreIndexFromCommit(commitID string) error {
+	commit, err := storage.FindCommit(commitID)
+	if err != nil {
+		return err
+	}
+
+	tree, err := storage.ParseTree(commit.TreeHash)
+	if err != nil {
+		return err
+	}
+
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		// Clear existing
+		for k := range index {
+			delete(index, k)
+		}
+
+		for path, hash := range tree {
+			hb, _ := storage.HexToHash(hash)
+			index[path] = plumbing.IndexEntry{
+				Path: path,
+				Hash: hb,
+				Mode: 0100644,
+			}
+		}
+		return nil
+	})
+}
+
+// IsWorkDirDirty checks if there are uncommitted changes
 func IsWorkDirDirty() (bool, error) {
-	// Load the tree from the last commit (HEAD)
 	headTree := make(map[string]string)
-	lastCommit, err := GetHeadCommit() // Use GetHeadCommit, not storage.GetLastCommit
+	lastCommit, err := GetHeadCommit()
 	if err == nil {
 		tree, parseErr := storage.ParseTree(lastCommit.TreeHash)
 		if parseErr != nil {
 			return false, parseErr
 		}
 		headTree = tree
-	} else if !os.IsNotExist(err) && !strings.Contains(err.Error(), "no such file") && !strings.Contains(err.Error(), "cannot find the file") {
-		// If the error is NOT "file not found" (meaning no branch tip yet), return it.
-		return false, err
 	}
 
-	// Load the current staging area
 	index, err := storage.LoadIndex()
 	if err != nil {
 		return false, err
@@ -108,9 +166,13 @@ func IsWorkDirDirty() (bool, error) {
 
 	for path := range allPaths {
 		headHash, inHead := headTree[path]
-		indexHash, inIndex := index[path]
+		indexEntry, inIndex := index[path]
 
-		// If there's any difference between HEAD and index, working dir is dirty
+		var indexHash string
+		if inIndex {
+			indexHash = hex.EncodeToString(indexEntry.Hash[:])
+		}
+
 		if (inIndex && !inHead) || (!inIndex && inHead) || (inIndex && inHead && headHash != indexHash) {
 			return true, nil
 		}
@@ -123,30 +185,27 @@ func IsWorkDirDirty() (bool, error) {
 		}
 		cleanPath := filepath.Clean(path)
 
-		// Skip the .kitkat directory and other directories
 		if info.IsDir() || strings.HasPrefix(cleanPath, RepoDir+string(os.PathSeparator)) || cleanPath == RepoDir {
 			return nil
 		}
 
-		indexHash, isTracked := index[cleanPath]
-
-		// If the file is not in the index, it's untracked (dirty)
+		indexEntry, isTracked := index[cleanPath]
 		if !isTracked {
-			return fmt.Errorf("untracked") // Use error to signal dirty state
+			return fmt.Errorf("untracked")
 		}
 
-		// If the file is tracked, hash it and compare with the index
 		currentHash, hashErr := storage.HashFile(cleanPath)
 		if hashErr != nil {
 			return hashErr
 		}
-		if currentHash != indexHash {
-			return fmt.Errorf("modified") // Use error to signal dirty state
+
+		indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
+		if currentHash != indexHashHex {
+			return fmt.Errorf("modified")
 		}
 		return nil
 	})
 
-	// If we got an "untracked" or "modified" error, the working dir is dirty
 	if err != nil {
 		if err.Error() == "untracked" || err.Error() == "modified" {
 			return true, nil
@@ -157,8 +216,7 @@ func IsWorkDirDirty() (bool, error) {
 	return false, nil
 }
 
-// UpdateBranchPointer updates the current branch pointer or HEAD to point to a specific commit.
-// Handles both branch mode (updates refs/heads/<branch>) and detached HEAD mode (updates HEAD directly).
+// UpdateBranchPointer updates HEAD or branch ref
 func UpdateBranchPointer(commitHash string) error {
 	headData, err := os.ReadFile(HeadPath)
 	if err != nil {
@@ -166,33 +224,21 @@ func UpdateBranchPointer(commitHash string) error {
 	}
 	ref := strings.TrimSpace(string(headData))
 
-	// Case A: HEAD points to a branch (ref: refs/heads/<branch>)
 	if strings.HasPrefix(ref, "ref: ") {
 		refPath := strings.TrimPrefix(ref, "ref: ")
-		branchFile := filepath.Join(".kitkat", refPath)
-
-		// Verify branch file exists
-		if _, err := os.Stat(branchFile); err != nil {
-			branchName := strings.TrimPrefix(refPath, "refs/heads/")
-			return fmt.Errorf("current branch %s not found", branchName)
-		}
-
-		// Update the branch pointer
+		branchFile := filepath.Join(".kitcat", refPath)
 		if err := SafeWrite(branchFile, []byte(commitHash), 0644); err != nil {
 			return fmt.Errorf("failed to update branch pointer: %w", err)
 		}
 		return nil
 	}
 
-	// Case B: Detached HEAD (HEAD contains a commit hash directly)
 	if err := SafeWrite(HeadPath, []byte(commitHash), 0644); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
 	return nil
 }
 
-// readHead returns the commit hash that HEAD currently points to.
-// This is useful for rollback operations.
 func readHead() (string, error) {
 	headData, err := os.ReadFile(HeadPath)
 	if err != nil {
@@ -200,38 +246,62 @@ func readHead() (string, error) {
 	}
 	ref := strings.TrimSpace(string(headData))
 
-	// If HEAD points to a branch, read the branch file
 	if strings.HasPrefix(ref, "ref: ") {
 		refPath := strings.TrimPrefix(ref, "ref: ")
-		branchFile := filepath.Join(".kitkat", refPath)
+		branchFile := filepath.Join(".kitcat", refPath)
 		commitHash, err := os.ReadFile(branchFile)
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(string(commitHash)), nil
 	}
-
-	// Detached HEAD - ref is the commit hash
 	return ref, nil
 }
 
-// IsSafePath checks if a file path is safe to use (prevents path traversal attacks).
-// Returns false if the path attempts to escape the repository directory.
 func IsSafePath(path string) bool {
-	// Clean the path to normalize it
 	cleanPath := filepath.Clean(path)
-
-	// Check for absolute paths (should be relative)
 	if filepath.IsAbs(cleanPath) {
 		return false
 	}
-
-	// Check for path traversal attempts (..)
 	if strings.Contains(cleanPath, "..") {
 		return false
 	}
-
 	return true
+}
+
+func IsRepoInitialized() bool {
+	cwd, err := os.Getwd()
+	if err != nil { return false }
+	for {
+		if _, err := os.Stat(filepath.Join(cwd, RepoDir)); err == nil {
+			if err := os.Chdir(cwd); err != nil {
+				return false
+			}
+			return true
+		}
+		parent := filepath.Dir(cwd)
+		if parent == cwd { return false }
+		cwd = parent
+	}
+}
+
+func SafeWrite(filename string, data []byte, perm os.FileMode) error {
+	dirPath := filepath.Dir(filename)
+	f, err := os.CreateTemp(dirPath, "atomic-")
+	if err != nil { return err }
+	tmpName := f.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+	return os.Rename(tmpName, filename)
 }
 
 // GetHeadCommit returns the commit that HEAD currently points to.
@@ -246,80 +316,4 @@ func GetHeadCommit() (models.Commit, error) {
 
 	// Find and return that commit
 	return storage.FindCommit(commitHash)
-}
-
-// IsRepoInitialized checks if the current directory or any parent is a valid kitkat repository.
-// If found, it changes the current working directory to the repository root.
-func IsRepoInitialized() bool {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(cwd, RepoDir)); err == nil {
-			// Found the repository root
-			// Update the working directory to the repo root so that
-			// all relative paths (RepoDir, etc.) are valid.
-			if err := os.Chdir(cwd); err != nil {
-				return false
-			}
-			return true
-		}
-
-		parent := filepath.Dir(cwd)
-		if parent == cwd {
-			// Reached the system root without finding .kitkat
-			return false
-		}
-		cwd = parent
-	}
-
-}
-
-// Write data in safe way
-func SafeWrite(filename string, data []byte, perm os.FileMode) error {
-	dirPath := filepath.Dir(filename)
-
-	// Create temp file
-	f, err := os.CreateTemp(dirPath, "atomic-")
-	if err != nil {
-		return err
-	}
-	tmpName := f.Name()
-
-	// Ensure cleanup of the temp file if we exit early
-	defer os.Remove(tmpName)
-
-	// Write data
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-
-	// Set Permissions
-	if err := f.Chmod(perm); err != nil {
-		f.Close()
-		return err
-	}
-
-	// Sync the file content
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	f.Close()
-
-	if err := os.Rename(tmpName, filename); err != nil {
-		return err
-	}
-
-	// Sync Directory
-	d, err := os.Open(dirPath)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-
-	return d.Sync()
 }

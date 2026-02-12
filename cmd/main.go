@@ -1,519 +1,535 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/core"
-	"github.com/LeeFred3042U/kitcat/internal/models"
 )
 
-type CommandFunc func(args []string)
+const (
+	exitSuccess = 0
+	exitFailure = 1
+	exitUsage   = 2
+)
 
-var commands = map[string]CommandFunc{
-	"init": func(args []string) {
-		if err := core.InitRepo(); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-	},
-	"add": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitkat add <file-path>")
-			os.Exit(2)
-		}
-		if args[0] == "-A" || args[0] == "--all" {
-			fmt.Println("Staging all changes...")
-			if err := core.AddAll(); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		}
-		exitCode := 0
-		for _, path := range args {
-			if err := core.AddFile(path); err != nil {
-				fmt.Printf("Error adding %s: %v\n", path, err)
-				exitCode = 1
-			}
-		}
-		os.Exit(exitCode)
-	},
-	"rm": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitkat rm <file>")
-			os.Exit(2)
-		}
-		filename := args[0]
-		if err := core.RemoveFile(filename); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Removed '%s'\n", filename)
-		os.Exit(0)
-	},
-	"commit": func(args []string) {
-		if !core.IsRepoInitialized() {
-			fmt.Println("Error: not a kitkat repository (or any of the parent directories): .kitkat")
-			os.Exit(1)
-		}
-
-		if len(args) < 2 {
-			fmt.Println("Usage: kitkat commit <-m | -am | --amend> <message>")
-			os.Exit(2)
-		}
-
-		var isAmend bool
-		var message string
-
-		switch args[0] {
-		// Checks for amending
-		case "--amend":
-			if len(args) < 3 || args[1] != "-m" {
-				fmt.Println("Usage: kitkat commit --amend -m <message>")
-				os.Exit(2)
-			}
-			isAmend = true
-			message = strings.Join(args[2:], " ")
-		// Normal commit flow
-		case "-am":
-			message = strings.Join(args[1:], " ")
-			newCommit, summary, err := core.CommitAll(message)
-			if err != nil {
-				if err.Error() == "nothing to commit, working tree clean" {
-					fmt.Println(err.Error())
-					os.Exit(1)
-				}
-				os.Exit(2)
-			}
-			printCommitResult(newCommit, summary)
-			os.Exit(0)
-		case "-m":
-			message = strings.Join(args[1:], " ")
-		default:
-			fmt.Println("Usage: kitkat commit <-m | -am | --amend> <message>")
-			os.Exit(2)
-		}
-
-		// Handle amend or normal commit
-		if isAmend {
-			newCommit, err := core.AmendCommit(message)
-			if err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			headState, err := core.GetHeadState()
-			if err != nil {
-				headData, _ := os.ReadFile(".kitkat/HEAD")
-				ref := strings.TrimSpace(string(headData))
-				headState = strings.TrimPrefix(ref, "ref: refs/heads/")
-			}
-			fmt.Printf("[%s %s] %s (amended)\n", headState, newCommit.ID[:7], newCommit.Message)
-			os.Exit(0)
-		} else {
-			newCommit, summary, err := core.Commit(message)
-			if err != nil {
-				if err.Error() == "nothing to commit, working tree clean" {
-					fmt.Println(err.Error())
-					os.Exit(1)
-				} else {
-					fmt.Println("Error:", err)
-					os.Exit(1)
-				}
-			}
-			printCommitResult(newCommit, summary)
-			os.Exit(0)
-		}
-	},
-	"log": func(args []string) {
-		oneline := false
-		limit := -1
-		i := 0
-		for i < len(args) {
-			switch args[i] {
-			case "--oneline":
-				oneline = true
-				i++
-			case "-n":
-				if i+1 >= len(args) {
-					fmt.Println("Error: -n requires a positive integer argument")
-					os.Exit(2)
-				}
-				var n int
-				_, err := fmt.Sscanf(args[i+1], "%d", &n)
-				if err != nil || n <= 0 {
-					fmt.Println("Error: -n requires a positive integer argument")
-					os.Exit(2)
-				}
-				limit = n
-				i += 2
-			default:
-				fmt.Printf("Error: unknown flag %s\n", args[i])
-				os.Exit(2)
-			}
-		}
-		if err := core.ShowLog(oneline, limit); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-	},
-	"shortlog": func(args []string) {
-		if err := core.ShowShortLog(); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-	},
-	"status": func(args []string) {
-		if err := core.Status(); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-	},
-	"diff": func(args []string) {
-		staged := false
-		if len(args) > 0 {
-			if args[0] == "--cached" || args[0] == "--staged" {
-				staged = true
-			}
-		}
-		if err := core.Diff(staged); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-	},
-	"checkout": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitkat checkout [-b] <branch-name> | <file-path>")
-			os.Exit(2)
-		}
-		if args[0] == "-b" {
-			if len(args) != 2 {
-				fmt.Println("Usage: kitkat checkout -b <branch-name>")
-				os.Exit(2)
-			}
-			name := args[1]
-			if core.IsBranch(name) {
-				fmt.Printf("Error: Branch '%s' already exists\n", name)
-				os.Exit(1)
-			}
-			if err := core.CreateBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			if err := core.CheckoutBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		}
-		name := args[0]
-		if core.IsBranch(name) {
-			if err := core.CheckoutBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-		} else {
-			if err := core.CheckoutFile(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-		}
-	},
-	"merge": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitkat merge <branch-name>")
-			os.Exit(2)
-		}
-		if err := core.Merge(args[0]); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	},
-	"reset": func(args []string) {
-		if len(args) < 2 {
-			fmt.Println("Usage: kitkat reset --hard <commit-hash>")
-			os.Exit(2)
-		}
-		if args[0] != "--hard" {
-			fmt.Println("Error: only 'reset --hard' is currently supported")
-			fmt.Println("Usage: kitkat reset --hard <commit-hash>")
-			os.Exit(2)
-		}
-		if err := core.ResetHard(args[1]); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	},
-	"rebase": func(args []string) {
-		if len(args) < 1 {
-			fmt.Println("Usage: kitkat rebase [-i <commit> | --continue | --abort]")
-			os.Exit(2)
-		}
-
-		switch args[0] {
-		case "--abort":
-			if err := core.RebaseAbort(); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		case "--continue":
-			if err := core.RebaseContinue(); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		case "-i":
-			if len(args) < 2 {
-				fmt.Println("Usage: kitkat rebase -i <commit>")
-				os.Exit(2)
-			}
-			if err := core.RebaseInteractive(args[1]); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		default:
-			// If no flag, assumes simple rebase which isn't requested but we can default to error
-			fmt.Println("Usage: kitkat rebase [-i <commit> | --continue | --abort]")
-			os.Exit(2)
-		}
-	},
-	"ls-files": func(args []string) {
-		if !core.IsRepoInitialized() {
-			fmt.Println("Error: not a kitkat repository (or any of the parent directories): .kitkat")
-			os.Exit(1)
-		}
-
-		entries, err := core.LoadIndex()
-		if err != nil {
-			fmt.Println("Error loading index:", err)
-			os.Exit(1)
-		}
-
-		for _, entry := range entries {
-			fmt.Println(entry.Path)
-		}
-		os.Exit(0)
-	},
-	"clean": func(args []string) {
-		force := false
-		includeIgnored := false
-
-		for _, arg := range args {
-			switch arg {
-			case "-f":
-				force = true
-			case "-x":
-				includeIgnored = true
-			}
-		}
-
-		if !force {
-			fmt.Println("This will delete untracked files. Run 'kitkat clean -f' to proceed.")
-			os.Exit(0)
-		}
-
-		if err := core.Clean(true, includeIgnored); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-
-		os.Exit(0)
-	},
-	"help": func(args []string) {
-		if len(args) > 0 {
-			core.PrintCommandHelp(args[0])
-		} else {
-			core.PrintGeneralHelp()
-		}
-		os.Exit(0)
-	},
-	"tag": func(args []string) {
-		if !core.IsRepoInitialized() {
-			fmt.Println("Error: not a kitkat repository (or any of the parent directories): .kitkat")
-			os.Exit(1)
-		}
-
-		if len(args) == 1 && (args[0] == "--list") {
-			if err := core.PrintTags(); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		}
-
-		if len(args) < 2 {
-			fmt.Println("Usage: kitkat tag <tag-name> <commit-id>")
-			os.Exit(2)
-		}
-
-		if err := core.CreateTag(args[0], args[1]); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-
-		os.Exit(0)
-	},
-	"config": func(args []string) {
-		if len(args) < 2 || args[0] != "--global" {
-			if len(args) == 1 && args[0] == "--list" {
-				if err := core.PrintAllConfig(); err != nil {
-					fmt.Println("Error:", err)
-					os.Exit(1)
-				}
-				os.Exit(0)
-			}
-			fmt.Println("Usage: kitkat config --global <key> [<value>]")
-			os.Exit(2)
-		}
-		key := args[1]
-		if len(args) == 3 {
-			value := args[2]
-			if err := core.SetConfig(key, value); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		} else if len(args) == 2 {
-			value, ok, err := core.GetConfig(key)
-			if err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			if ok {
-				fmt.Println(value)
-				os.Exit(0)
-			}
-		} else {
-			fmt.Println("Usage: kitkat config --global <key> [<value>]")
-			os.Exit(2)
-		}
-	},
-	"show-object": func(args []string) {
-		if len(args) != 1 {
-			fmt.Println("Usage: kitkat show-object <hash>")
-			os.Exit(2)
-			return
-		}
-		if err := core.ShowObject(args[0]); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	},
-	"branch": func(args []string) {
-		if len(args) == 0 {
-			fmt.Println("Usage: kitkat branch [-l | -r <branch-name> | -d <branch-name>]")
-			os.Exit(2)
-		}
-		switch args[0] {
-		case "-l":
-			if err := core.ListBranches(); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		case "-r":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: kitkat branch -r <branch-name>")
-				os.Exit(2)
-			}
-
-			name := args[1]
-			if err := core.RenameCurrentBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		case "-d", "--delete":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "Usage: kitkat branch -d <branch-name>")
-				os.Exit(2)
-			}
-
-			name := args[1]
-			if err := core.DeleteBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			} else {
-				fmt.Println("Branch `" + name + "` deleted successfully")
-				os.Exit(0)
-			}
-		default:
-			name := args[0]
-			if core.IsBranch(name) {
-				fmt.Printf("Error: Branch '%s' already exists\n", name)
-				os.Exit(1)
-			}
-			if err := core.CreateBranch(name); err != nil {
-				fmt.Println("Error:", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		}
-	},
-	"mv": func(args []string) {
-		force := false
-		paths := make([]string, 0, 2)
-
-		for _, arg := range args {
-			if arg == "-f" || arg == "--force" {
-				force = true
-				continue
-			}
-			paths = append(paths, arg)
-		}
-
-		if len(paths) != 2 {
-			fmt.Println("Usage: kitkat mv [-f|--force] <old_path> <new_path>")
-			os.Exit(2)
-		}
-
-		if err := core.MoveFile(paths[0], paths[1], force); err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
-
-		os.Exit(0)
-	},
-}
-
-// printCommitResult formats and prints the commit result with summary
-func printCommitResult(newCommit models.Commit, summary string) {
-	headState, err := core.GetHeadState()
-	if err != nil {
-		headData, _ := os.ReadFile(".kitkat/HEAD")
-		ref := strings.TrimSpace(string(headData))
-		headState = strings.TrimPrefix(ref, "ref: refs/heads/")
-	}
-	fmt.Printf("[%s %s] %s\n%s\n", headState, newCommit.ID[:7], newCommit.Message, summary)
+var commands = map[string]func([]string){
+	"init":        handleInit,
+	"add":         handleAdd,
+	"commit":      handleCommit,
+	"status":      handleStatus,
+	"log":         handleLog,
+	"branch":      handleBranch,
+	"checkout":    handleCheckout,
+	"clean":       handleClean,
+	"rebase":      handleRebase,
+	"merge":       handleMerge,
+	"reset":       handleReset,
+	"tag":         handleTag,
+	"diff":        handleDiff,
+	"rm":          handleRm,
+	"mv":          handleMv,
+	"ls-files":    handleLsFiles,
+	"show-object": handleShowObject,
+	"config":      handleConfig,
+	"help":        handleHelp,
 }
 
 func main() {
-	if len(os.Args) >= 4 && os.Args[1] == "branch" && (os.Args[2] == "-m" || os.Args[2] == "--move") {
-		newName := os.Args[3]
-		err := core.RenameCurrentBranch(newName)
-		if err != nil {
-			fmt.Println("Error renaming branch:", err)
-			os.Exit(1)
-		}
-		fmt.Println("Branch renamed to", newName)
-		os.Exit(0)
-	}
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: kitkat <command> [args]")
-		os.Exit(2)
+		printHelp()
+		os.Exit(exitUsage)
 	}
-	cmd, args := os.Args[1], os.Args[2:]
-	if handler, ok := commands[cmd]; ok {
-		handler(args)
+
+	cmdName := os.Args[1]
+
+	if cmdName == "-h" || cmdName == "--help" || cmdName == "help" {
+		printHelp()
+		os.Exit(exitSuccess)
+	}
+
+	handler, exists := commands[cmdName]
+	if !exists {
+		fmt.Fprintf(os.Stderr, "kitcat: '%s' is not a kitcat command. See 'kitcat --help'.\n", cmdName)
+		os.Exit(exitFailure)
+	}
+
+	handler(os.Args[2:])
+}
+
+// --- Handlers ---
+
+func handleInit(args []string) {
+	if err := core.Init(); err != nil {
+		die("init failed: %v", err)
+	}
+	fmt.Fprintln(os.Stderr, "Initialized empty kitcat repository")
+}
+
+func handleAdd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat add <pathspec>...")
+		os.Exit(exitUsage)
+	}
+
+	if len(args) == 1 && (args[0] == "." || args[0] == "-A" || args[0] == "--all") {
+		if err := core.AddAll(); err != nil {
+			die("add all failed: %v", err)
+		}
+		return
+	}
+
+	hasError := false
+	for _, path := range args {
+		if err := core.AddFile(path); err != nil {
+			fmt.Fprintf(os.Stderr, "error: adding '%s' failed: %v\n", path, err)
+			hasError = true
+		}
+	}
+
+	if hasError {
+		os.Exit(exitFailure)
+	}
+}
+
+func handleCommit(args []string) {
+	var cleanArgs []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-am=") {
+			cleanArgs = append(cleanArgs, "-a", "-m", strings.TrimPrefix(a, "-am="))
+			continue
+		}
+		if strings.HasPrefix(a, "-am") && a != "-a" && a != "-m" {
+			cleanArgs = append(cleanArgs, "-a", "-m")
+			if len(a) > 3 {
+				cleanArgs = append(cleanArgs, a[3:])
+			}
+			continue
+		}
+		cleanArgs = append(cleanArgs, a)
+	}
+
+	fs := flag.NewFlagSet("commit", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	msg := fs.String("m", "", "Commit message")
+	amend := fs.Bool("amend", false, "Amend the last commit")
+	all := fs.Bool("a", false, "Stage all modified/deleted files")
+
+	if err := fs.Parse(cleanArgs); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	// Architectural fix: Use core.GetHeadCommit instead of core.Log
+	if *amend && *msg == "" {
+		if head, err := core.GetHeadCommit(); err == nil {
+			*msg = head.Message
+		}
+	}
+
+	if *msg == "" {
+		fmt.Fprintln(os.Stderr, "error: commit message required (use -m)")
+		os.Exit(exitUsage)
+	}
+
+	var hash string
+	var err error
+
+	if *amend {
+		hash, err = core.AmendCommit(*msg)
+	} else if *all {
+		hash, err = core.CommitAll(*msg)
 	} else {
-		fmt.Println("Unknown command:", cmd)
-		core.PrintGeneralHelp()
-		os.Exit(2)
+		hash, err = core.Commit(*msg)
 	}
+
+	if err != nil {
+		if err.Error() == "nothing to commit, working tree clean" {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(exitFailure)
+		}
+		die("commit failed: %v", err)
+	}
+
+	if len(hash) >= 7 {
+		fmt.Printf("[%s] %s\n", hash[:7], *msg)
+	} else {
+		fmt.Printf("[%s] %s\n", hash, *msg)
+	}
+}
+
+func handleStatus(args []string) {
+	out, err := core.Status()
+	if err != nil {
+		die("status failed: %v", err)
+	}
+	fmt.Println(out)
+}
+
+func handleLog(args []string) {
+	commits, err := core.Log()
+	if err != nil {
+		die("log failed: %v", err)
+	}
+
+	for _, c := range commits {
+		fmt.Printf("commit %s\n", c.ID)
+		fmt.Printf("Author: %s <%s>\n", c.AuthorName, c.AuthorEmail)
+		fmt.Printf("Date:   %s\n\n", c.Timestamp.Format("Mon Jan 2 15:04:05 2006 -0700"))
+		fmt.Printf("    %s\n\n", c.Message)
+	}
+}
+
+func handleBranch(args []string) {
+	if len(args) == 0 {
+		if err := core.ListBranches(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	if args[0] == "-d" || args[0] == "--delete" {
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: kitcat branch -d <branchname>")
+			os.Exit(exitUsage)
+		}
+		if err := core.DeleteBranch(args[1]); err != nil {
+			die("%v", err)
+		}
+		fmt.Fprintf(os.Stderr, "Deleted branch %s\n", args[1])
+		return
+	}
+
+	if args[0] == "-m" || args[0] == "--move" {
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: kitcat branch -m <newname>")
+			os.Exit(exitUsage)
+		}
+		if err := core.RenameCurrentBranch(args[1]); err != nil {
+			die("%v", err)
+		}
+		fmt.Fprintf(os.Stderr, "Renamed current branch to %s\n", args[1])
+		return
+	}
+
+	if err := core.CreateBranch(args[0]); err != nil {
+		die("%v", err)
+	}
+	fmt.Fprintf(os.Stderr, "Created branch %s\n", args[0])
+}
+
+func handleCheckout(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat checkout <branch> | -b <new_branch>")
+		os.Exit(exitUsage)
+	}
+
+	if args[0] == "-b" {
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "Usage: kitcat checkout -b <new_branch>")
+			os.Exit(exitUsage)
+		}
+		newBranch := args[1]
+		if err := core.CreateBranch(newBranch); err != nil {
+			die("failed to create branch: %v", err)
+		}
+		if err := core.Checkout(newBranch); err != nil {
+			die("failed to checkout new branch: %v", err)
+		}
+		fmt.Fprintf(os.Stderr, "Switched to a new branch '%s'\n", newBranch)
+		return
+	}
+
+	arg := args[0]
+	if err := core.Checkout(arg); err != nil {
+		die("%v", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Checked out '%s'\n", arg)
+}
+
+func handleClean(args []string) {
+	fs := flag.NewFlagSet("clean", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	dryRun := fs.Bool("n", false, "Dry run")
+	force := fs.Bool("f", false, "Force")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	if !*force && !*dryRun {
+		fmt.Fprintln(os.Stderr, "fatal: clean.requireForce defaults to true and neither -n nor -f given; refusing to clean")
+		os.Exit(exitFailure)
+	}
+
+	if err := core.Clean(*dryRun); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleRebase(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat rebase <branch> [-i | --abort | --continue]")
+		os.Exit(exitUsage)
+	}
+
+	arg := args[0]
+
+	if arg == "--abort" {
+		if err := core.RebaseAbort(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+	if arg == "--continue" {
+		if err := core.RebaseContinue(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	interactive := false
+	target := arg
+
+	if len(args) > 1 && (args[1] == "-i" || args[1] == "--interactive") {
+		interactive = true
+	}
+
+	if err := core.Rebase(target, interactive); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleMerge(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat merge <branch>")
+		os.Exit(exitUsage)
+	}
+	if err := core.Merge(args[0]); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleReset(args []string) {
+	fs := flag.NewFlagSet("reset", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	hard := fs.Bool("hard", false, "Reset index and working tree")
+	soft := fs.Bool("soft", false, "Reset only HEAD")
+	_ = fs.Bool("mixed", false, "Reset HEAD and index (default)")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	if *hard && *soft {
+		fmt.Fprintln(os.Stderr, "fatal: --hard and --soft are mutually exclusive")
+		os.Exit(exitUsage)
+	}
+
+	fsArgs := fs.Args()
+	commit := "HEAD"
+	if len(fsArgs) > 0 {
+		commit = fsArgs[0]
+	}
+
+	mode := core.ResetMixed
+	if *hard {
+		mode = core.ResetHard
+	} else if *soft {
+		mode = core.ResetSoft
+	}
+
+	if err := core.Reset(commit, mode); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleTag(args []string) {
+	if len(args) == 0 {
+		if err := core.PrintTags(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	tagName := args[0]
+	commit := "HEAD"
+	if len(args) > 1 {
+		commit = args[1]
+	}
+
+	// Architectural fix: Use core.ResolveHead
+	if commit == "HEAD" {
+		headHash, err := core.ResolveHead()
+		if err != nil {
+			die("cannot resolve HEAD: %v", err)
+		}
+		if headHash == "" {
+			die("cannot resolve HEAD: ref is empty or invalid")
+		}
+		commit = headHash
+	}
+
+	if err := core.CreateTag(tagName, commit); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleDiff(args []string) {
+	// Check for --staged flag
+	staged := false
+	if len(args) > 0 && (args[0] == "--staged" || args[0] == "--cached") {
+		staged = true
+	}
+	if err := core.Diff(staged); err != nil { // Pass arg
+		die("%v", err)
+	}
+}
+
+func handleRm(args []string) {
+	fs := flag.NewFlagSet("rm", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	recursive := fs.Bool("r", false, "Allow recursive removal")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat rm [-r] <file>...")
+		os.Exit(exitUsage)
+	}
+
+	for _, file := range fs.Args() {
+		if err := core.RemoveFile(file, *recursive); err != nil {
+			die("%v", err)
+		}
+	}
+}
+
+func handleMv(args []string) {
+	fs := flag.NewFlagSet("mv", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	force := fs.Bool("f", false, "Force move/rename")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	if fs.NArg() != 2 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat mv <source> <destination>")
+		os.Exit(exitUsage)
+	}
+
+	if err := core.MoveFile(fs.Arg(0), fs.Arg(1), *force); err != nil {
+		die("%v", err)
+	}
+	fmt.Fprintf(os.Stderr, "Renamed '%s' to '%s'\n", fs.Arg(0), fs.Arg(1))
+}
+
+func handleLsFiles(args []string) {
+	if err := core.ListFiles(); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleShowObject(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Usage: kitcat show-object <hash>")
+		os.Exit(exitUsage)
+	}
+	if err := core.ShowObject(args[0]); err != nil {
+		die("%v", err)
+	}
+}
+
+func handleConfig(args []string) {
+	fs := flag.NewFlagSet("config", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	var global bool
+	fs.BoolVar(&global, "global", false, "Use global config file")
+	fs.BoolVar(&global, "g", false, "Use global config file")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	params := fs.Args()
+
+	if len(params) < 1 {
+		if err := core.PrintAllConfig(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	key := params[0]
+	if len(params) == 2 {
+		val := params[1]
+		if err := core.SetConfig(key, val, global); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	val, found, err := core.GetConfig(key)
+	if err != nil {
+		die("%v", err)
+	}
+	if found {
+		fmt.Println(val)
+	}
+}
+
+func handleHelp(args []string) {
+	printHelp()
+}
+
+func die(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "fatal: "+format+"\n", args...)
+	os.Exit(exitFailure)
+}
+
+func printHelp() {
+	helpText := `usage: kitcat <command> [<args>]
+
+These are common kitcat commands used in various situations:
+
+start a working area
+   init       Initialize a new repository
+
+work on the current change
+   add        Add file contents to the index
+   mv         Move or rename a file, a directory, or a symlink
+   rm         Remove files from the working tree and from the index
+   clean      Remove untracked files from the working tree
+
+examine the history and state
+   status     Show the working tree status
+   log        Show commit logs
+   diff       Show changes between commits, commit and working tree, etc
+   ls-files   Show information about files in the index and the working tree
+   show-object Display the contents of a kitcat object
+
+grow, mark and tweak your common history
+   branch     List, create, or delete branches
+   checkout   Switch branches or restore working tree files
+   commit     Record changes to the repository
+   merge      Join two or more development histories together
+   rebase     Reapply commits on top of another base tip
+   reset      Reset current HEAD to the specified state
+   tag        Create, list, delete or verify a tag object signed with GPG
+
+configuration
+   config     Get and set repository or global options
+`
+	fmt.Print(helpText)
 }

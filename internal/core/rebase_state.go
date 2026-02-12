@@ -29,12 +29,17 @@ func SaveRebaseState(state RebaseState) error {
 	}
 	base := filepath.Join(RepoDir, "rebase-merge")
 
-	os.WriteFile(filepath.Join(base, "head-name"), []byte(state.HeadName), 0644)
-	os.WriteFile(filepath.Join(base, "onto"), []byte(state.Onto), 0644)
-	os.WriteFile(filepath.Join(base, "orig-head"), []byte(state.OrigHead), 0644)
-	os.WriteFile(filepath.Join(base, "git-rebase-todo"), []byte(strings.Join(state.TodoSteps, "\n")), 0644)
-	os.WriteFile(filepath.Join(base, "msgnum"), []byte(fmt.Sprintf("%d", state.CurrentStep+1)), 0644)
-	os.WriteFile(filepath.Join(base, "message"), []byte(state.Message), 0644) // Optional
+	// Helper to write files and check errors immediately
+	write := func(filename, content string) error {
+		return os.WriteFile(filepath.Join(base, filename), []byte(content), 0644)
+	}
+
+	if err := write("head-name", state.HeadName); err != nil { return err }
+	if err := write("onto", state.Onto); err != nil { return err }
+	if err := write("orig-head", state.OrigHead); err != nil { return err }
+	if err := write("git-rebase-todo", strings.Join(state.TodoSteps, "\n")); err != nil { return err }
+	if err := write("msgnum", fmt.Sprintf("%d", state.CurrentStep+1)); err != nil { return err }
+	if err := write("message", state.Message); err != nil { return err }
 
 	return nil
 }
@@ -45,26 +50,32 @@ func LoadRebaseState() (*RebaseState, error) {
 		return nil, fmt.Errorf("no rebase in progress")
 	}
 
-	headName, _ := os.ReadFile(filepath.Join(base, "head-name"))
-	onto, _ := os.ReadFile(filepath.Join(base, "onto"))
-	origHead, _ := os.ReadFile(filepath.Join(base, "orig-head"))
-	todoData, _ := os.ReadFile(filepath.Join(base, "git-rebase-todo"))
-	msgNumData, _ := os.ReadFile(filepath.Join(base, "msgnum"))
-	message, _ := os.ReadFile(filepath.Join(base, "message"))
+	// Helper to read files, returning empty string on error/missing
+	read := func(filename string) string {
+		content, _ := os.ReadFile(filepath.Join(base, filename))
+		return strings.TrimSpace(string(content))
+	}
 
-	step, _ := strconv.Atoi(strings.TrimSpace(string(msgNumData)))
+	headName := read("head-name")
+	onto := read("onto")
+	origHead := read("orig-head")
+	todoData := read("git-rebase-todo")
+	msgNumData := read("msgnum")
+	message := read("message")
+
+	step, _ := strconv.Atoi(msgNumData)
 	// step is 1-based in file, 0-based in struct
 	if step > 0 {
 		step--
 	}
 
 	return &RebaseState{
-		HeadName:    strings.TrimSpace(string(headName)),
-		Onto:        strings.TrimSpace(string(onto)),
-		OrigHead:    strings.TrimSpace(string(origHead)),
-		TodoSteps:   strings.Split(strings.TrimSpace(string(todoData)), "\n"),
+		HeadName:    headName,
+		Onto:        onto,
+		OrigHead:    origHead,
+		TodoSteps:   strings.Split(todoData, "\n"),
 		CurrentStep: step,
-		Message:     string(message),
+		Message:     message,
 	}, nil
 }
 
@@ -82,7 +93,8 @@ func ReadNextTodo() (string, *RebaseState, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if state.CurrentStep >= len(state.TodoSteps) {
+	// Check bounds
+	if state.CurrentStep < 0 || state.CurrentStep >= len(state.TodoSteps) {
 		return "", state, nil
 	}
 	return state.TodoSteps[state.CurrentStep], state, nil

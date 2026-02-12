@@ -26,79 +26,60 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
-	"io"
 	"os"
-
-	"github.com/LeeFred3042U/kitkat/internal/core"
 )
 
-const IndexPath = core.IndexPath
-
-func UpdateIndex(entries []IndexEntry) error {
+// UpdateIndex writes the index to disk
+func UpdateIndex(entries []IndexEntry, indexPath string) error {
 	var buf bytes.Buffer
 
-	// ---- Header ----
-	buf.Write([]byte("DIRC"))                                  // signature
-	binary.Write(&buf, binary.BigEndian, uint32(2))            // version
-	binary.Write(&buf, binary.BigEndian, uint32(len(entries))) // entry count
+	// Header
+	if _, err := buf.Write([]byte("DIRC")); err != nil { return err }
+	if err := binary.Write(&buf, binary.BigEndian, uint32(2)); err != nil { return err }
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(entries))); err != nil { return err }
 
-	// ---- Entries ----
+	// Entries
 	for _, e := range entries {
 		if err := writeEntry(&buf, e); err != nil {
 			return err
 		}
 	}
 
-	// ---- Checksum ----
+	// Checksum
 	sum := sha1.Sum(buf.Bytes())
-	buf.Write(sum[:])
+	if _, err := buf.Write(sum[:]); err != nil { return err }
 
-	return os.WriteFile(IndexPath, buf.Bytes(), 0644)
+	return os.WriteFile(indexPath, buf.Bytes(), 0644)
 }
 
-func writeEntry(w io.Writer, e IndexEntry) error {
-	write := func(v interface{}) {
-		_ = binary.Write(w, binary.BigEndian, v)
+func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
+	if err := binary.Write(buf, binary.BigEndian, e.CTimeSec); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.CTimeNSec); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.MTimeSec); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.MTimeNSec); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.Dev); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.Ino); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.Mode); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.UID); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.GID); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.Size); err != nil { return err }
+	
+	if _, err := buf.Write(e.Hash[:]); err != nil { return err }
+
+	nameLen := len(e.Path)
+	if nameLen > 0xFFF {
+		nameLen = 0xFFF
 	}
+	if err := binary.Write(buf, binary.BigEndian, uint16(nameLen)); err != nil { return err }
 
-	// ---- Stat fields ----
-	write(e.CTimeSec)
-	write(e.CTimeNSec)
-	write(e.MTimeSec)
-	write(e.MTimeNSec)
-	write(e.Dev)
-	write(e.Ino)
-	write(e.Mode)
-	write(e.UID)
-	write(e.GID)
-	write(e.Size)
+	if _, err := buf.WriteString(e.Path); err != nil { return err }
+	if err := buf.WriteByte(0); err != nil { return err } // Null terminator
 
-	// ---- Object ID ----
-	if _, err := w.Write(e.Hash[:]); err != nil {
-		return err
+	// Padding
+	entrySize := 62 + len(e.Path) + 1
+	pad := 8 - (entrySize % 8)
+	for i := 0; i < pad; i++ {
+		if err := buf.WriteByte(0); err != nil { return err }
 	}
-
-	// ---- Flags ----
-	flags := uint16(len(e.Path)) & 0x0fff
-	flags |= uint16(e.Stage&0x3) << 12
-	write(flags)
-
-	// ---- Path ----
-	if _, err := w.Write([]byte(e.Path)); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte{0}); err != nil {
-		return err
-	}
-
-	padTo8(w)
 	return nil
-}
-
-func padTo8(w io.Writer) {
-	if b, ok := w.(*bytes.Buffer); ok {
-		for b.Len()%8 != 0 {
-			b.WriteByte(0)
-		}
-	}
 }

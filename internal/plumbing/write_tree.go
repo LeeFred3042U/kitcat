@@ -25,11 +25,11 @@ package plumbing
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 )
 
+// treeNode is a temporary structure to build the tree hierarchy in memory
 type treeNode struct {
 	files map[string]treeEntry
 	dirs  map[string]*treeNode
@@ -54,9 +54,12 @@ func WriteTree(indexPath string) (string, error) {
 }
 
 func addToTree(root *treeNode, e IndexEntry) {
-	parts := strings.Split(e.Path, string(filepath.Separator))
+	// Git paths always use forward slashes '/', regardless of the OS.
+	// filepath.Separator would break this on Windows.
+	parts := strings.Split(e.Path, "/")
 	node := root
 
+	// Build directory hierarchy
 	for i := 0; i < len(parts)-1; i++ {
 		dir := parts[i]
 		if node.dirs[dir] == nil {
@@ -68,6 +71,7 @@ func addToTree(root *treeNode, e IndexEntry) {
 		node = node.dirs[dir]
 	}
 
+	// Add file to the specific directory node
 	filename := parts[len(parts)-1]
 	node.files[filename] = treeEntry{
 		mode: e.Mode,
@@ -79,35 +83,47 @@ func addToTree(root *treeNode, e IndexEntry) {
 func writeTreeRecursive(node *treeNode) (string, error) {
 	var entries []treeEntry
 
+	// 1. Collect files
 	for _, f := range node.files {
 		entries = append(entries, f)
 	}
 
+	// 2. Recursively process directories
 	for name, dir := range node.dirs {
-		treeHash, err := writeTreeRecursive(dir)
+		treeHashHex, err := writeTreeRecursive(dir)
 		if err != nil {
 			return "", err
 		}
 
+		// Convert the hex string hash back to [20]byte using the safe helper
+		hashBytes, err := HexToHash(treeHashHex)
+		if err != nil {
+			return "", fmt.Errorf("failed to convert tree hash for directory %s: %w", name, err)
+		}
+
 		var h [20]byte
-		copy(h[:], hexToBytes(treeHash))
+		copy(h[:], hashBytes)
 
 		entries = append(entries, treeEntry{
-			mode: 040000,
+			mode: 040000, // Standard Git Tree Mode (directory)
 			name: name,
 			hash: h,
 		})
 	}
 
+	// 3. Sort entries (required for deterministic tree hash)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
 	})
 
+	// 4. Write Content
 	var buf bytes.Buffer
 	for _, e := range entries {
+		// Format: "%o %s\x00%s" -> mode name\0hash
 		fmt.Fprintf(&buf, "%o %s\x00", e.mode, e.name)
 		buf.Write(e.hash[:])
 	}
 
+	// 5. Store Object
 	return HashAndWriteObject(buf.Bytes(), "tree")
 }

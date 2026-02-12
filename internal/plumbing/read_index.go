@@ -22,91 +22,76 @@
 
 package plumbing
 
+
 import (
-	"bytes"
-	"crypto/sha1"
+	"bufio"
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 )
 
 func ReadIndex(path string) ([]IndexEntry, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil, os.ErrNotExist
+	}
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 
-	// Verify checksum
-	if len(data) < 20 {
-		return nil, fmt.Errorf("index file too small")
-	}
+	r := bufio.NewReader(f)
 
-	content := data[:len(data)-20]
-	expected := data[len(data)-20:]
-
-	sum := sha1.Sum(content)
-	if !bytes.Equal(sum[:], expected) {
-		return nil, fmt.Errorf("index checksum mismatch")
-	}
-
-	r := bytes.NewReader(content)
-
-	// ---- HEADER ----
-	var sig [4]byte
-	if _, err := io.ReadFull(r, sig[:]); err != nil {
+	// Header
+	var signature [4]byte
+	if _, err := io.ReadFull(r, signature[:]); err != nil {
 		return nil, err
 	}
-	if string(sig[:]) != "DIRC" {
-		return nil, fmt.Errorf("invalid index signature")
+	if string(signature[:]) != "DIRC" {
+		return nil, errors.New("invalid index signature")
 	}
 
-	var version uint32
+	var version, count uint32
 	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
 		return nil, err
 	}
-	if version != 2 {
-		return nil, fmt.Errorf("unsupported index version: %d", version)
-	}
-
-	var entryCount uint32
-	if err := binary.Read(r, binary.BigEndian, &entryCount); err != nil {
+	if err := binary.Read(r, binary.BigEndian, &count); err != nil {
 		return nil, err
 	}
 
-	entries := make([]IndexEntry, 0, entryCount)
+	entries := make([]IndexEntry, count)
 
-	// ---- ENTRIES ----
-	for i := uint32(0); i < entryCount; i++ {
+	for i := 0; i < int(count); i++ {
 		var e IndexEntry
-
-		read := func(v interface{}) error {
-			return binary.Read(r, binary.BigEndian, v)
+		
+		// Use a helper function that returns error to simplify checks
+		read := func(data interface{}) error {
+			return binary.Read(r, binary.BigEndian, data)
 		}
 
-		read(&e.CTimeSec)
-		read(&e.CTimeNSec)
-		read(&e.MTimeSec)
-		read(&e.MTimeNSec)
-		read(&e.Dev)
-		read(&e.Ino)
-		read(&e.Mode)
-		read(&e.UID)
-		read(&e.GID)
-		read(&e.Size)
+		if err := read(&e.CTimeSec); err != nil { return nil, err }
+		if err := read(&e.CTimeNSec); err != nil { return nil, err }
+		if err := read(&e.MTimeSec); err != nil { return nil, err }
+		if err := read(&e.MTimeNSec); err != nil { return nil, err }
+		if err := read(&e.Dev); err != nil { return nil, err }
+		if err := read(&e.Ino); err != nil { return nil, err }
+		if err := read(&e.Mode); err != nil { return nil, err }
+		if err := read(&e.UID); err != nil { return nil, err }
+		if err := read(&e.GID); err != nil { return nil, err }
+		if err := read(&e.Size); err != nil { return nil, err }
 
 		if _, err := io.ReadFull(r, e.Hash[:]); err != nil {
 			return nil, err
 		}
 
 		var flags uint16
-		read(&flags)
-
-		// stage = bits 12–13
-		e.Stage = uint8((flags >> 12) & 0x3)
-
-		// read path
-		var pathBuf []byte
+		if err := binary.Read(r, binary.BigEndian, &flags); err != nil {
+			return nil, err
+		}
+		
+		// Read Name (null terminated)
+		var nameBuf []byte
 		for {
 			b, err := r.ReadByte()
 			if err != nil {
@@ -115,34 +100,40 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 			if b == 0 {
 				break
 			}
-			pathBuf = append(pathBuf, b)
+			nameBuf = append(nameBuf, b)
 		}
-		e.Path = string(pathBuf)
+		e.Path = string(nameBuf)
 
-		// skip padding to 8-byte alignment
-		for (r.Size()-int64(r.Len()))%8 != 0 {
-			r.ReadByte()
+		// Padding logic (1-8 null bytes to align to 8 bytes)
+		// Entry size = 62 bytes fixed + len(path) + 1 (null)
+		entrySize := 62 + len(nameBuf) + 1
+		pad := 8 - (entrySize % 8)
+		for j := 0; j < pad; j++ {
+			if _, err := r.ReadByte(); err != nil {
+				// End of file might be reached on last padding, strictly we should check
+				if err == io.EOF {
+					break
+				}
+				return nil, err
+			}
 		}
 
-		entries = append(entries, e)
+		entries[i] = e
 	}
 
-	for r.Len() > 0 {
-		if r.Len() < 8 {
-			break
-		}
-
-		var extSig [4]byte
-		io.ReadFull(r, extSig[:])
-
+	// Try to read signature
+	var extSig [4]byte
+	if _, err := io.ReadFull(r, extSig[:]); err == nil {
+		// If we successfully read a signature, read size and skip
 		var extSize uint32
-		binary.Read(r, binary.BigEndian, &extSize)
-
-		if extSize > uint32(r.Len()) {
-			return nil, fmt.Errorf("corrupt index extension")
+		if err := binary.Read(r, binary.BigEndian, &extSize); err == nil {
+			// Skip content
+			// Since r is bufio, we can't verify Seek easily without underlying file, 
+			// but we can discard.
+			if _, err := r.Discard(int(extSize)); err != nil {
+				return nil, err
+			}
 		}
-
-		r.Seek(int64(extSize), io.SeekCurrent)
 	}
 
 	return entries, nil

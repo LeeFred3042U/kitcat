@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -12,7 +13,9 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// UpdateWorkspaceAndIndex resets working dir and index to match commit
+// UpdateWorkspaceAndIndex forces the working directory and index to match
+// the tree snapshot of a given commit. Files missing from the target tree
+// are deleted, and existing files are overwritten.
 func UpdateWorkspaceAndIndex(commitHash string) error {
 	commit, err := storage.FindCommit(commitHash)
 	if err != nil {
@@ -24,12 +27,15 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 	}
 
 	currentIndex, _ := storage.LoadIndex()
+
+	// Remove files that exist in index but not in target tree.
 	for path := range currentIndex {
 		if _, exists := targetTree[path]; !exists {
 			os.Remove(path)
 		}
 	}
 
+	// Restore files from object storage.
 	for path, hash := range targetTree {
 		content, err := storage.ReadObject(hash)
 		if err != nil {
@@ -43,11 +49,11 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 		}
 	}
 
-	// Update Index using the target tree map
+	// Rewrite index to mirror target tree.
 	return storage.WriteIndex(targetTree)
 }
 
-// GetHeadState returns the current branch name or commit hash if detached
+// GetHeadState returns the active branch name or raw commit hash if detached.
 func GetHeadState() (string, error) {
 	headContent, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
@@ -60,7 +66,7 @@ func GetHeadState() (string, error) {
 	return content, nil
 }
 
-// IsDetachedHead checks if the repository is in detached HEAD state
+// IsDetachedHead returns true when HEAD contains a direct commit hash.
 func IsDetachedHead() (bool, error) {
 	headContent, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
@@ -69,7 +75,8 @@ func IsDetachedHead() (bool, error) {
 	return !strings.HasPrefix(string(headContent), "ref: "), nil
 }
 
-// VerifyCleanTree checks if the working directory matches the current HEAD
+// VerifyCleanTree ensures index matches HEAD tree exactly.
+// Used as a safety guard before destructive operations.
 func VerifyCleanTree() error {
 	index, err := storage.LoadIndex()
 	if err != nil {
@@ -99,7 +106,7 @@ func VerifyCleanTree() error {
 			return fmt.Errorf("dirty: %s", path)
 		}
 
-		// Fix: Convert [20]byte to hex string
+		// Convert binary hash to hex for comparison with tree map.
 		entryHashHex := hex.EncodeToString(entry.Hash[:])
 		if entryHashHex != headHash {
 			return fmt.Errorf("dirty: %s", path)
@@ -108,7 +115,7 @@ func VerifyCleanTree() error {
 	return nil
 }
 
-// RestoreIndexFromCommit updates the index to match a specific commit
+// RestoreIndexFromCommit replaces the index contents with entries from a commit tree.
 func RestoreIndexFromCommit(commitID string) error {
 	commit, err := storage.FindCommit(commitID)
 	if err != nil {
@@ -121,7 +128,7 @@ func RestoreIndexFromCommit(commitID string) error {
 	}
 
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
-		// Clear existing
+		// Clear existing entries before rebuilding.
 		for k := range index {
 			delete(index, k)
 		}
@@ -138,7 +145,8 @@ func RestoreIndexFromCommit(commitID string) error {
 	})
 }
 
-// IsWorkDirDirty checks if there are uncommitted changes
+// IsWorkDirDirty checks staged and unstaged differences between HEAD, index,
+// and working directory. Returns true on first detected change.
 func IsWorkDirDirty() (bool, error) {
 	headTree := make(map[string]string)
 	lastCommit, err := GetHeadCommit()
@@ -155,7 +163,7 @@ func IsWorkDirDirty() (bool, error) {
 		return false, err
 	}
 
-	// Check for staged changes (Index vs. HEAD)
+	// Compare index vs HEAD to detect staged changes.
 	allPaths := make(map[string]bool)
 	for path := range headTree {
 		allPaths[path] = true
@@ -178,13 +186,14 @@ func IsWorkDirDirty() (bool, error) {
 		}
 	}
 
-	// Check for unstaged changes (Working Directory vs. Index)
+	// Compare working tree vs index.
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		cleanPath := filepath.Clean(path)
 
+		// Skip repo metadata directory.
 		if info.IsDir() || strings.HasPrefix(cleanPath, RepoDir+string(os.PathSeparator)) || cleanPath == RepoDir {
 			return nil
 		}
@@ -216,7 +225,8 @@ func IsWorkDirDirty() (bool, error) {
 	return false, nil
 }
 
-// UpdateBranchPointer updates HEAD or branch ref
+// UpdateBranchPointer updates either the branch reference or HEAD itself.
+// Uses SafeWrite to avoid partial writes during ref updates.
 func UpdateBranchPointer(commitHash string) error {
 	headData, err := os.ReadFile(HeadPath)
 	if err != nil {
@@ -239,6 +249,7 @@ func UpdateBranchPointer(commitHash string) error {
 	return nil
 }
 
+// readHead resolves HEAD to a commit hash, following symbolic refs.
 func readHead() (string, error) {
 	headData, err := os.ReadFile(HeadPath)
 	if err != nil {
@@ -258,6 +269,8 @@ func readHead() (string, error) {
 	return ref, nil
 }
 
+// IsSafePath rejects absolute paths and parent traversal segments to avoid
+// writes outside repository boundaries.
 func IsSafePath(path string) bool {
 	cleanPath := filepath.Clean(path)
 	if filepath.IsAbs(cleanPath) {
@@ -269,6 +282,7 @@ func IsSafePath(path string) bool {
 	return true
 }
 
+// IsRepoInitialized searches upward for RepoDir and switches cwd to repo root.
 func IsRepoInitialized() bool {
 	cwd, err := os.Getwd()
 	if err != nil { return false }
@@ -285,6 +299,7 @@ func IsRepoInitialized() bool {
 	}
 }
 
+// SafeWrite performs atomic file updates by writing to a temp file and renaming.
 func SafeWrite(filename string, data []byte, perm os.FileMode) error {
 	dirPath := filepath.Dir(filename)
 	f, err := os.CreateTemp(dirPath, "atomic-")
@@ -304,16 +319,69 @@ func SafeWrite(filename string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmpName, filename)
 }
 
-// GetHeadCommit returns the commit that HEAD currently points to.
-// This differs from storage.GetLastCommit() which returns the last commit in the log.
-// After a reset, HEAD might point to an earlier commit than the last one in the log.
+// GetHeadCommit returns the commit referenced by HEAD, which may differ
+// from the last chronological commit after resets or history rewrites.
 func GetHeadCommit() (models.Commit, error) {
-	// Get the commit hash that HEAD points to
 	commitHash, err := readHead()
 	if err != nil {
 		return models.Commit{}, err
 	}
-
-	// Find and return that commit
 	return storage.FindCommit(commitHash)
+}
+
+// copyRecursive copies a file or directory tree.
+// Used when os.Rename fails across filesystem boundaries.
+func copyRecursive(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		// Create destination directory before descending so structure is preserved.
+		if err := os.MkdirAll(dst, info.Mode()); err != nil {
+			return err
+		}
+
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+
+		// Recursively copy children to maintain relative layout.
+		for _, e := range entries {
+			s := filepath.Join(src, e.Name())
+			d := filepath.Join(dst, e.Name())
+			if err := copyRecursive(s, d); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// File copy
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	// Ensure parent directory exists to avoid partial copy failures.
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Stream copy avoids loading entire file into memory.
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+
+	// Preserve original file mode for consistency with git mv fallback behaviour.
+	return out.Chmod(info.Mode())
 }

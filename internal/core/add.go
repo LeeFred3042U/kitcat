@@ -11,9 +11,13 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
+// AddFile stages a file or directory by hashing content and updating the index.
+// It respects ignore rules, enforces path safety, and avoids rehashing when
+// metadata indicates no changes.
 func AddFile(inputPath string) error {
+	// Guard against running outside a repository.
 	if _, err := os.Stat(RepoDir); os.IsNotExist(err) {
-		return errors.New("not a kitcat repository (run `kitcat init`)")
+		return errors.New("not a kitcat repository (run `kitkat init`)")
 	}
 
 	absInputPath, err := filepath.Abs(inputPath)
@@ -29,12 +33,14 @@ func AddFile(inputPath string) error {
 		return fmt.Errorf("path does not exist: %s", inputPath)
 	}
 
+	// All index mutations are executed within a single transactional update.
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 		ignorePatterns, err := LoadIgnorePatterns()
 		if err != nil {
 			return err
 		}
 
+		// Proxy map adapts index keys for ignore matcher expectations.
 		proxyIndex := make(map[string]string, len(index))
 		for k := range index {
 			proxyIndex[k] = ""
@@ -45,12 +51,14 @@ func AddFile(inputPath string) error {
 				return err
 			}
 
+			// Convert absolute walk path into repo-relative index key.
 			relPath, err := filepath.Rel(absRepoRoot, fullPath)
 			if err != nil {
 				return fmt.Errorf("file %s is outside repository", fullPath)
 			}
 			cleanPath := filepath.Clean(relPath)
 
+			// Skip repo metadata directory entirely.
 			if cleanPath == "." || strings.HasPrefix(cleanPath, RepoDir) {
 				if info.IsDir() && cleanPath != "." {
 					return filepath.SkipDir
@@ -62,6 +70,7 @@ func AddFile(inputPath string) error {
 				return nil
 			}
 
+			// Safety and ignore filters prevent accidental staging of unwanted files.
 			if !IsSafePath(cleanPath) {
 				return nil
 			}
@@ -77,7 +86,7 @@ func AddFile(inputPath string) error {
 				MTimeNSec: uint32(info.ModTime().Nanosecond()),
 			}
 
-			// Optimization: Metadata Check
+			// Metadata-based optimization avoids expensive rehash when unchanged.
 			if existing, exists := index[cleanPath]; exists {
 				if existing.Size == entry.Size && existing.MTimeSec == entry.MTimeSec {
 					return nil
@@ -103,6 +112,8 @@ func AddFile(inputPath string) error {
 	})
 }
 
+// AddAll stages all files under the repository root.
+// It updates modified files and removes deleted entries from the index.
 func AddAll() error {
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 		ignorePatterns, err := LoadIgnorePatterns()
@@ -118,6 +129,7 @@ func AddAll() error {
 		seen := make(map[string]bool, len(index))
 		rootDir, _ := filepath.Abs(".")
 
+		// Walk entire repository tree to rebuild staging state.
 		err = filepath.Walk(rootDir, func(fullPath string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -126,6 +138,7 @@ func AddAll() error {
 			relPath, _ := filepath.Rel(rootDir, fullPath)
 			cleanPath := filepath.Clean(relPath)
 
+			// Skip repository metadata directory.
 			if cleanPath == "." || strings.HasPrefix(cleanPath, RepoDir) {
 				if info.IsDir() && cleanPath != "." {
 					return filepath.SkipDir
@@ -144,6 +157,7 @@ func AddAll() error {
 
 			seen[cleanPath] = true
 
+			// Metadata shortcut avoids hashing unchanged files.
 			if existing, exists := index[cleanPath]; exists {
 				if existing.Size == uint32(info.Size()) && existing.MTimeSec == uint32(info.ModTime().Unix()) {
 					return nil
@@ -175,6 +189,7 @@ func AddAll() error {
 			return err
 		}
 
+		// Remove index entries that no longer exist in working tree.
 		var toDelete []string
 		for path := range index {
 			if !seen[path] {

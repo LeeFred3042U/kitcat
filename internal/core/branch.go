@@ -12,12 +12,9 @@ import (
 
 const headsDir string = ".kitcat/refs/heads"
 
-// ResolveHead resolves the current HEAD to a full commit hash.
-// It handles both attached (ref: ...) and detached (raw hash) states.
-// Returns an error if HEAD cannot be resolved or the commit is missing.
+// ResolveHead returns the commit hash currently referenced by HEAD.
+// Delegates resolution to storage.GetLastCommit which handles symbolic refs.
 func ResolveHead() (string, error) {
-	// We rely on storage.GetLastCommit() which implements the robust
-	// HEAD -> Ref -> Commit Object resolution chain.
 	c, err := storage.GetLastCommit()
 	if err != nil {
 		return "", err
@@ -25,7 +22,7 @@ func ResolveHead() (string, error) {
 	return c.ID, nil
 }
 
-// IsValidRefName checks if the branch or tag name is safe and valid
+// IsValidRefName validates a branch/tag name to avoid unsafe filesystem paths.
 func IsValidRefName(name string) bool {
 	if !IsSafePath(name) {
 		return false
@@ -39,6 +36,8 @@ func IsValidRefName(name string) bool {
 	return true
 }
 
+// readHEAD reads the symbolic reference stored in HEAD.
+// Detached HEADs are treated as invalid for callers that expect branch refs.
 func readHEAD() (string, error) {
 	headData, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
@@ -51,6 +50,7 @@ func readHEAD() (string, error) {
 	return strings.TrimPrefix(ref, "ref: "), nil
 }
 
+// readCommitHash reads a commit hash from a reference file path.
 func readCommitHash(referencePath string) (string, error) {
 	commitHash, err := os.ReadFile(filepath.Join(".kitcat", referencePath))
 	if err != nil {
@@ -59,6 +59,8 @@ func readCommitHash(referencePath string) (string, error) {
 	return strings.TrimSpace(string(commitHash)), nil
 }
 
+// CreateBranch creates a new branch pointing to the current HEAD commit.
+// Falls back to last commit lookup if HEAD ref cannot be resolved.
 func CreateBranch(name string) error {
 	if !IsValidRefName(name) {
 		return fmt.Errorf("invalid branch name '%s'", name)
@@ -66,12 +68,15 @@ func CreateBranch(name string) error {
 	if IsBranch(name) {
 		return fmt.Errorf("branch '%s' already exists", name)
 	}
+
 	head, err := readHEAD()
 	if err != nil {
 		return err
 	}
+
 	commitHash, err := readCommitHash(head)
 	if err != nil {
+		// Detached or missing ref: fallback to latest commit.
 		lastCommit, err := storage.GetLastCommit()
 		if err != nil {
 			return errors.New("cannot create branch: no commits yet")
@@ -87,6 +92,7 @@ func CreateBranch(name string) error {
 	return os.WriteFile(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
 }
 
+// IsBranch returns true if a branch reference file exists.
 func IsBranch(name string) bool {
 	branchPath := filepath.Join(headsDir, name)
 	if _, err := os.Stat(branchPath); err == nil {
@@ -95,6 +101,8 @@ func IsBranch(name string) bool {
 	return false
 }
 
+// ListBranches prints all branches, highlighting the current one.
+// Output ordering depends on filesystem enumeration.
 func ListBranches() error {
 	currentBranch, err := GetHeadState()
 	if err != nil {
@@ -121,6 +129,8 @@ func ListBranches() error {
 	return nil
 }
 
+// RenameCurrentBranch renames the active branch by copying its ref,
+// updating HEAD, and deleting the old reference.
 func RenameCurrentBranch(newName string) error {
 	if !IsValidRefName(newName) {
 		return fmt.Errorf("invalid branch name '%s'", newName)
@@ -151,6 +161,7 @@ func RenameCurrentBranch(newName string) error {
 		return err
 	}
 
+	// Create new ref before modifying HEAD to avoid losing reference on failure.
 	if err := os.WriteFile(newRef, commitHash, 0o644); err != nil {
 		return err
 	}
@@ -160,13 +171,11 @@ func RenameCurrentBranch(newName string) error {
 		return err
 	}
 
-	if err := os.Remove(oldRef); err != nil {
-		return err
-	}
-
-	return nil
+	return os.Remove(oldRef)
 }
 
+// DeleteBranch removes a branch reference file.
+// Refuses deletion if the branch is currently checked out.
 func DeleteBranch(name string) error {
 	head, err := readHEAD()
 	if err != nil {

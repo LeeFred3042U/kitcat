@@ -14,15 +14,20 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
+// Checkout switches HEAD to a branch or detached commit and restores
+// the working tree to match the target commit. Index entries are rebuilt
+// inside a transactional storage.UpdateIndex call.
 func Checkout(target string) error {
 	hash := strings.TrimSpace(target)
-	
+
+	// If target is a branch, resolve commit hash and update HEAD as symbolic ref.
 	if b, err := os.ReadFile(".kitcat/refs/heads/" + target); err == nil {
 		hash = strings.TrimSpace(string(b))
 		if err := os.WriteFile(".kitcat/HEAD", []byte("ref: refs/heads/"+target), 0644); err != nil {
 			return err
 		}
 	} else {
+		// Detached HEAD: write raw commit hash.
 		if err := os.WriteFile(".kitcat/HEAD", []byte(hash), 0644); err != nil {
 			return err
 		}
@@ -30,23 +35,27 @@ func Checkout(target string) error {
 
 	commit, err := storage.FindCommit(hash)
 	if err != nil { return err }
-	
+
 	tree, err := storage.ParseTree(commit.TreeHash)
 	if err != nil { return err }
 
+	// Rewrite working tree files and rebuild index entries.
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 		for path, blobHash := range tree {
 			content, err := storage.ReadObject(blobHash)
 			if err != nil { return err }
-			
+
+			// Ensure directory exists before writing file.
 			if dir := filepath.Dir(path); dir != "." {
 				if err := os.MkdirAll(dir, 0755); err != nil {
 					return fmt.Errorf("failed to create directory %s: %w", dir, err)
 				}
 			}
 
+			// Overwrite file content unconditionally.
 			if err := os.WriteFile(path, content, 0644); err != nil { return err }
-			
+
+			// Convert hex blob hash into binary index hash.
 			hb, _ := storage.HexToHash(blobHash)
 			index[path] = plumbing.IndexEntry{
 				Path: path,
@@ -58,9 +67,10 @@ func Checkout(target string) error {
 	})
 }
 
-// Restore a file in the working directory to its state in the last commit
+// CheckoutFile restores a single file from the last commit into the working tree.
+// Includes safety checks to avoid overwriting modified or untracked files.
 func CheckoutFile(filePath string) error {
-	// Get the target content (from HEAD/Last Commit)
+	// Resolve file content from HEAD commit.
 	lastCommit, err := storage.GetLastCommit()
 	if err != nil {
 		return err
@@ -76,33 +86,30 @@ func CheckoutFile(filePath string) error {
 		return errors.New("file not found in the last commit")
 	}
 
-	// SAFETY CHECK: Prevent overwriting dirty or untracked files
+	// Safety check: refuse overwrite if file has local modifications or is untracked.
 	if _, err := os.Stat(filePath); err == nil {
-		// File exists, check if it is safe to overwrite
 		currentHash, err := calculateHash(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate hash for safety check: %v", err)
 		}
 
-		// Load index to check if the file is tracked and clean
 		index, err := storage.LoadIndex()
 		if err != nil {
 			return err
 		}
 
 		if trackedHash, ok := index[filePath]; ok {
-			// Compare string (currentHash) with [20]byte (trackedHash.Hash)
 			trackedHashHex := hex.EncodeToString(trackedHash.Hash[:])
 			if currentHash != trackedHashHex {
 				return fmt.Errorf("local changes would be overwritten")
 			}
 		} else {
-			// File exists but is NOT in the index (untracked): fail to prevent data loss
+			// Prevent destructive overwrite of untracked files.
 			return fmt.Errorf("error: untracked file '%s' would be overwritten", filePath)
 		}
 	}
 
-	// Safe to overwrite: Perform the checkout
+	// Restore file content from object storage.
 	content, err := storage.ReadObject(blobHash)
 	if err != nil {
 		return err
@@ -111,12 +118,15 @@ func CheckoutFile(filePath string) error {
 	return os.WriteFile(filePath, content, 0644)
 }
 
+// calculateHash computes a raw SHA-1 hash of file contents.
+// Used only for safety comparison with tracked index hashes.
 func calculateHash(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
+
 	h := sha1.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err

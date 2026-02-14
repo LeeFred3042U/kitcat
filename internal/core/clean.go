@@ -10,21 +10,21 @@ import (
 )
 
 // Clean removes untracked files from the working directory.
-// If dryRun is true, it only lists files that would be removed.
+// When dryRun is true, files are only listed and not deleted.
 func Clean(dryRun bool) error {
-	// Load the index to check which files are tracked
+	// Load tracked files from index; used to prevent accidental deletion.
 	index, err := storage.LoadIndex()
 	if err != nil {
 		return fmt.Errorf("failed to load index: %w", err)
 	}
 
-	// Load ignore patterns to preserve ignored files
+	// Load ignore rules so ignored files are preserved.
 	patterns, err := LoadIgnorePatterns()
 	if err != nil {
 		return fmt.Errorf("failed to load ignore patterns: %w", err)
 	}
 
-	// Build proxy map for ShouldIgnore compatibility
+	// ShouldIgnore expects a map[string]string; build a lightweight proxy.
 	proxyIndex := make(map[string]string, len(index))
 	for k := range index {
 		proxyIndex[k] = ""
@@ -32,12 +32,13 @@ func Clean(dryRun bool) error {
 
 	var toRemove []string
 
+	// Walk working directory to find candidates for cleanup.
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip the .kitcat directory
+		// Never descend into repository metadata directory.
 		if path == RepoDir || strings.HasPrefix(path, RepoDir+string(os.PathSeparator)) {
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -45,32 +46,30 @@ func Clean(dryRun bool) error {
 			return nil
 		}
 
-		// We only clean files, not directories (unless empty, but git clean usually cleans files)
+		// Only consider files; directories are left intact.
 		if info.IsDir() {
 			return nil
 		}
 
-		// Clean path
 		cleanPath := filepath.Clean(path)
 
-		// 1. Skip if tracked
+		// Skip tracked files.
 		if _, tracked := index[cleanPath]; tracked {
 			return nil
 		}
 
-		// 2. Skip if ignored
+		// Skip ignored files.
 		if ShouldIgnore(cleanPath, patterns, proxyIndex) {
 			return nil
 		}
 
-		// If untracked and not ignored, verify safety and mark for removal
+		// Final safety guard before scheduling deletion.
 		if IsSafePath(cleanPath) {
 			toRemove = append(toRemove, cleanPath)
 		}
 
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}
@@ -82,15 +81,18 @@ func Clean(dryRun bool) error {
 		return nil
 	}
 
+	// Perform deletion or dry-run output.
 	for _, file := range toRemove {
 		if dryRun {
 			fmt.Printf("Would remove %s\n", file)
+			continue
+		}
+
+		// Best-effort deletion; errors reported but do not abort entire operation.
+		if err := os.Remove(file); err != nil {
+			fmt.Printf("warning: failed to remove %s: %v\n", file, err)
 		} else {
-			if err := os.Remove(file); err != nil {
-				fmt.Printf("warning: failed to remove %s: %v\n", file, err)
-			} else {
-				fmt.Printf("Removing %s\n", file)
-			}
+			fmt.Printf("Removing %s\n", file)
 		}
 	}
 

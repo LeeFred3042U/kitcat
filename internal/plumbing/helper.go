@@ -27,19 +27,24 @@ import (
 	"os"
 )
 
-// SafeWriteFile writes data to a file, ensuring the directory exists.
+// SafeWriteFile writes raw data to disk using the provided permissions.
+// Despite the name, this currently performs a direct write and does not
+// implement atomic replace or directory creation safeguards.
 func SafeWriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 
-// HexToHash converts a hex string to a byte slice with error checking.
+// HexToHash converts a 40-character hexadecimal SHA-1 string into its
+// raw 20-byte representation. Strict length and per-byte parsing prevent
+// malformed hashes from entering object logic.
 func HexToHash(s string) ([]byte, error) {
 	if len(s) != 40 {
 		return nil, fmt.Errorf("invalid hash length: %d", len(s))
 	}
 	out := make([]byte, 20)
 	for i := 0; i < 20; i++ {
-		// Fix: Check the error return from Sscanf
+		// Parse two hex characters per byte to maintain strict decoding
+		// and fail fast on invalid characters.
 		if _, err := fmt.Sscanf(s[i*2:i*2+2], "%02x", &out[i]); err != nil {
 			return nil, fmt.Errorf("invalid hex at index %d: %w", i, err)
 		}

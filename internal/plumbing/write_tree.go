@@ -29,18 +29,23 @@ import (
 	"strings"
 )
 
-// treeNode is a temporary structure to build the tree hierarchy in memory
+// treeNode represents an intermediate in-memory directory structure used
+// to assemble tree objects before serialization. It separates files from
+// subdirectories to allow recursive hashing.
 type treeNode struct {
 	files map[string]treeEntry
 	dirs  map[string]*treeNode
 }
 
+// WriteTree builds a Git tree object from index entries and writes it
+// to object storage. Returns the root tree hash.
 func WriteTree(indexPath string) (string, error) {
 	indexEntries, err := ReadIndex(indexPath)
 	if err != nil {
 		return "", err
 	}
 
+	// Root node represents repository root; all paths are inserted relative to it.
 	root := &treeNode{
 		files: make(map[string]treeEntry),
 		dirs:  make(map[string]*treeNode),
@@ -59,7 +64,8 @@ func addToTree(root *treeNode, e IndexEntry) {
 	parts := strings.Split(e.Path, "/")
 	node := root
 
-	// Build directory hierarchy
+	// Walk or create directory nodes so the tree structure mirrors index paths.
+	// This ensures tree hashes match Git’s hierarchical object model.
 	for i := 0; i < len(parts)-1; i++ {
 		dir := parts[i]
 		if node.dirs[dir] == nil {
@@ -71,7 +77,7 @@ func addToTree(root *treeNode, e IndexEntry) {
 		node = node.dirs[dir]
 	}
 
-	// Add file to the specific directory node
+	// Leaf filename is stored at the final directory level.
 	filename := parts[len(parts)-1]
 	node.files[filename] = treeEntry{
 		mode: e.Mode,
@@ -83,19 +89,21 @@ func addToTree(root *treeNode, e IndexEntry) {
 func writeTreeRecursive(node *treeNode) (string, error) {
 	var entries []treeEntry
 
-	// 1. Collect files
+	// Collect file entries first; directories are appended after recursive hashing.
 	for _, f := range node.files {
 		entries = append(entries, f)
 	}
 
-	// 2. Recursively process directories
+	// Recursively write subtrees so child hashes are available before
+	// constructing the parent tree object (Merkle tree invariant).
 	for name, dir := range node.dirs {
 		treeHashHex, err := writeTreeRecursive(dir)
 		if err != nil {
 			return "", err
 		}
 
-		// Convert the hex string hash back to [20]byte using the safe helper
+		// Tree hashes are returned as hex strings; convert back to raw bytes
+		// because tree object format stores binary SHA-1 values.
 		hashBytes, err := HexToHash(treeHashHex)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert tree hash for directory %s: %w", name, err)
@@ -111,19 +119,20 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 		})
 	}
 
-	// 3. Sort entries (required for deterministic tree hash)
+	// Tree entries must be sorted lexicographically by name.
+	// Unsorted entries would produce nondeterministic hashes.
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].name < entries[j].name
 	})
 
-	// 4. Write Content
+	// Serialize entries using Git tree format: "<mode> <name>\0<raw-hash>".
+	// Binary hashes are appended directly after the null terminator.
 	var buf bytes.Buffer
 	for _, e := range entries {
-		// Format: "%o %s\x00%s" -> mode name\0hash
 		fmt.Fprintf(&buf, "%o %s\x00", e.mode, e.name)
 		buf.Write(e.hash[:])
 	}
 
-	// 5. Store Object
+	// Writing the object has filesystem side effects through object storage.
 	return HashAndWriteObject(buf.Bytes(), "tree")
 }

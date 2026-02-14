@@ -31,14 +31,21 @@ import (
 	"path/filepath"
 )
 
-// hashAndWriteObject handles all object types (blob, tree, commit)
+// HashAndWriteObject constructs a Git-style object, computes its SHA-1,
+// and stores it in the object database using content-addressed storage.
+// Supports all object types (blob, tree, commit).
 func HashAndWriteObject(content []byte, objType string) (string, error) {
+	// Object header is part of the hash input; omitting it would produce
+	// incompatible object IDs compared to Git.
 	header := fmt.Sprintf("%s %d\x00", objType, len(content))
 	store := append([]byte(header), content...)
 
+	// Hash is computed over the full header+payload buffer.
 	sum := sha1.Sum(store)
 	hash := fmt.Sprintf("%x", sum)
 
+	// Fan-out directory structure avoids too many files in a single directory
+	// and mirrors Git’s object storage layout.
 	dir := filepath.Join(".kitkat/objects", hash[:2])
 	path := filepath.Join(dir, hash[2:])
 
@@ -46,9 +53,12 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 		return "", err
 	}
 
+	// Objects are immutable; skip write if object already exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		var buf bytes.Buffer
 		w := zlib.NewWriter(&buf)
+
+		// Objects are stored compressed to reduce disk usage and match Git format.
 		if _, err := w.Write(store); err != nil {
 			return "", err
 		}

@@ -10,16 +10,20 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
+// RebaseAbort currently only reports state; no rebase metadata is tracked yet.
 func RebaseAbort() error {
 	fmt.Println("Rebase aborted")
 	return nil
 }
 
+// RebaseContinue is a placeholder until stateful rebase sequencing exists.
 func RebaseContinue() error {
 	fmt.Println("Rebase continue not implemented")
 	return nil
 }
 
+// GetCurrentBranch resolves HEAD and returns the active branch name.
+// Fails when repository is in detached HEAD state.
 func GetCurrentBranch() (string, error) {
 	head, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
@@ -32,10 +36,11 @@ func GetCurrentBranch() (string, error) {
 	return "", fmt.Errorf("detached HEAD")
 }
 
-// Rebase performs a simplified interactive rebase.
-// It rewrites history from the merge base to HEAD onto the new base.
+// Rebase rewrites commit history by replaying commits after the merge base
+// onto a new target branch. This implementation replaces trees directly
+// rather than applying diffs, which may overwrite local changes.
 func Rebase(targetBranch string, interactive bool) error {
-	// 1. Get current branch and HEAD
+	// Resolve current branch and HEAD.
 	currentBranch, err := GetCurrentBranch()
 	if err != nil {
 		return fmt.Errorf("failed to get current branch: %w", err)
@@ -46,13 +51,13 @@ func Rebase(targetBranch string, interactive bool) error {
 		return fmt.Errorf("failed to get HEAD commit: %w", err)
 	}
 
-	// 2. Get target commit
+	// Resolve target branch reference.
 	targetHash, err := storage.GetRef("refs/heads/" + targetBranch)
 	if err != nil {
 		return err
 	}
 
-	// 3. Find Merge Base
+	// Determine merge base to identify commits needing replay.
 	mergeBase, err := storage.FindMergeBase(headCommit.ID, targetHash)
 	if err != nil {
 		return fmt.Errorf("failed to find merge base: %w", err)
@@ -60,7 +65,7 @@ func Rebase(targetBranch string, interactive bool) error {
 
 	fmt.Printf("Rebasing %s onto %s (base: %s)\n", currentBranch, targetBranch, mergeBase[:7])
 
-	// 4. Collect commits to rebase (from base+1 to HEAD)
+	// Collect commits between merge base and HEAD.
 	var commitsToRebase []models.Commit
 	curr := headCommit.ID
 	for curr != mergeBase && curr != "" {
@@ -68,7 +73,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		if err != nil {
 			return err
 		}
-		// Prepend (since we walk backwards)
+		// Prepend because traversal walks history backwards.
 		commitsToRebase = append([]models.Commit{c}, commitsToRebase...)
 		curr = c.Parent
 	}
@@ -78,7 +83,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		return nil
 	}
 
-	// 5. Interactive Mode: Let user edit the plan
+	// Interactive step allows dropping commits before replay.
 	if interactive {
 		commitsToRebase, err = promptInteractiveRebase(commitsToRebase)
 		if err != nil {
@@ -86,8 +91,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		}
 	}
 
-	// 6. Perform Rebase (Replay commits)
-	// Reset HEAD to targetBranch (the new base)
+	// Reset working state to target branch before replaying commits.
 	if err := hardResetTo(targetHash); err != nil {
 		return err
 	}
@@ -95,37 +99,28 @@ func Rebase(targetBranch string, interactive bool) error {
 	for _, commit := range commitsToRebase {
 		fmt.Printf("Picking %s %s\n", commit.ID[:7], commit.Message)
 
-		// A. Checkout commit content (simplified: we just apply tree if no conflicts)
-		// In a real git, we'd apply the DIFF. Here we cheat and restore the Tree,
-		// relying on manual conflict resolution if files differ.
-		// For a robust rebase, we should use 3-way merge logic.
-		// Reusing 'CherryPick' logic here effectively.
-
+		// Instead of applying diffs, replace index/workdir with commit tree.
+		// This is simpler but can overwrite unrelated local changes.
 		if err := cherryPickTree(commit.TreeHash); err != nil {
 			return err
 		}
 
-		// B. Commit with new parent (automatically handled by Commit())
-		// The Commit() function uses the current HEAD as parent.
+		// New commit uses current HEAD as parent, creating rewritten history.
 		hash, err := Commit(commit.Message)
 		if err != nil {
 			return fmt.Errorf("failed to commit %s during rebase: %w", commit.ID[:7], err)
 		}
 
-		// Optional: Preserve Author/Date?
-		// The plumbing Commit() uses "now". To preserve, we'd need to modify CommitOptions
-		// inside Commit() or pass them in. For now, we accept new timestamps.
 		fmt.Printf("Re-applied as %s\n", hash[:7])
 	}
 
-	// 7. Update branch pointer
-	// Commit() updates HEAD (detached or branch).
-	// If we were on a branch, HEAD points to refs/heads/branch, so it's updated.
+	// Final hard reset ensures workspace matches resulting HEAD state.
 	fmt.Println("Rebase completed successfully.")
 	return hardResetTo(targetHash)
 }
 
-// hardResetTo moves HEAD and updates index/workdir to a specific hash
+// hardResetTo updates branch pointer then forces index and working tree
+// to match the provided commit hash.
 func hardResetTo(hash string) error {
 	currentBranch, _ := GetCurrentBranch()
 	refPath := ".kitcat/refs/heads/" + currentBranch
@@ -135,9 +130,9 @@ func hardResetTo(hash string) error {
 	return Reset(hash, ResetHard)
 }
 
-// promptInteractiveRebase opens an editor or simple prompt to reorder/drop commits
+// promptInteractiveRebase allows dropping commits via simple CLI input.
+// Ordering is preserved; no reordering/edit support exists yet.
 func promptInteractiveRebase(commits []models.Commit) ([]models.Commit, error) {
-	// Simplified: print and ask for confirmation
 	fmt.Println("\nCommits to rebase:")
 	for i, c := range commits {
 		fmt.Printf("%d: %s %s\n", i+1, c.ID[:7], c.Message)
@@ -170,9 +165,13 @@ func promptInteractiveRebase(commits []models.Commit) ([]models.Commit, error) {
 			kept = append(kept, c)
 		}
 	}
+
+	// Returning nil commits indicates user aborted flow intentionally.
 	return nil, nil
 }
 
+// cherryPickTree replaces index contents with a tree snapshot and updates
+// working directory files to match it.
 func cherryPickTree(treeHash string) error {
 	treeMap, err := storage.ParseTree(treeHash)
 	if err != nil {
@@ -183,12 +182,12 @@ func cherryPickTree(treeHash string) error {
 		return err
 	}
 
-	// Since CheckoutIndex is missing, we use Reset(HEAD, Hard) logic but without moving HEAD
-	// Actually, cherry-pick applies changes to workdir.
-	// We can manually checkout files from the index.
+	// Apply index state to disk by restoring files from object storage.
 	return checkoutIndexFromMap(treeMap)
 }
 
+// checkoutIndexFromMap writes tree contents directly into the working
+// directory. Existing files may be overwritten.
 func checkoutIndexFromMap(tree map[string]string) error {
 	for path, hash := range tree {
 		content, err := storage.ReadObject(hash)

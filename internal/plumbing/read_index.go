@@ -22,7 +22,6 @@
 
 package plumbing
 
-
 import (
 	"bufio"
 	"encoding/binary"
@@ -31,6 +30,8 @@ import (
 	"os"
 )
 
+// ReadIndex parses a Git index file from disk and reconstructs
+// in-memory IndexEntry records from the binary format.
 func ReadIndex(path string) ([]IndexEntry, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -43,7 +44,8 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 
 	r := bufio.NewReader(f)
 
-	// Header
+	// Validate index header signature to avoid interpreting arbitrary files
+	// as index data, which would corrupt parsing offsets.
 	var signature [4]byte
 	if _, err := io.ReadFull(r, signature[:]); err != nil {
 		return nil, err
@@ -65,11 +67,12 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 	for i := 0; i < int(count); i++ {
 		var e IndexEntry
 		
-		// Use a helper function that returns error to simplify checks
+		// Local helper keeps binary reads consistent and reduces repeated error checks.
 		read := func(data interface{}) error {
 			return binary.Read(r, binary.BigEndian, data)
 		}
 
+		// Fixed-width stat metadata must be read in strict order to maintain alignment.
 		if err := read(&e.CTimeSec); err != nil { return nil, err }
 		if err := read(&e.CTimeNSec); err != nil { return nil, err }
 		if err := read(&e.MTimeSec); err != nil { return nil, err }
@@ -90,7 +93,8 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 			return nil, err
 		}
 		
-		// Read Name (null terminated)
+		// Path names are stored as null-terminated byte sequences.
+		// Reading byte-by-byte avoids over-reading into the next entry.
 		var nameBuf []byte
 		for {
 			b, err := r.ReadByte()
@@ -104,13 +108,13 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		}
 		e.Path = string(nameBuf)
 
-		// Padding logic (1-8 null bytes to align to 8 bytes)
-		// Entry size = 62 bytes fixed + len(path) + 1 (null)
+		// Entries are padded with null bytes to maintain 8-byte alignment.
+		// Misalignment would cause subsequent reads to desynchronize.
 		entrySize := 62 + len(nameBuf) + 1
 		pad := 8 - (entrySize % 8)
 		for j := 0; j < pad; j++ {
 			if _, err := r.ReadByte(); err != nil {
-				// End of file might be reached on last padding, strictly we should check
+				// EOF may occur when padding reaches file end.
 				if err == io.EOF {
 					break
 				}
@@ -121,15 +125,12 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		entries[i] = e
 	}
 
-	// Try to read signature
+	// Attempt to read optional extension blocks. Unknown extensions are skipped
+	// by discarding their payload to keep reader aligned for checksum/footer.
 	var extSig [4]byte
 	if _, err := io.ReadFull(r, extSig[:]); err == nil {
-		// If we successfully read a signature, read size and skip
 		var extSize uint32
 		if err := binary.Read(r, binary.BigEndian, &extSize); err == nil {
-			// Skip content
-			// Since r is bufio, we can't verify Seek easily without underlying file, 
-			// but we can discard.
 			if _, err := r.Discard(int(extSize)); err != nil {
 				return nil, err
 			}

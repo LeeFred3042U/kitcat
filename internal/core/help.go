@@ -2,11 +2,15 @@ package core
 
 import "fmt"
 
+// CommandHelp holds summary and usage text for a CLI command.
+// Usage strings are printed verbatim to stdout.
 type CommandHelp struct {
 	Summary string
 	Usage   string
 }
 
+// helpMessages maps command names to their help metadata.
+// Stored as a map for lookup convenience; iteration order is not stable.
 var helpMessages = map[string]CommandHelp{
 	"init": {
 		Summary: "Initialize a new KitKat repository",
@@ -70,6 +74,8 @@ var helpMessages = map[string]CommandHelp{
 	},
 }
 
+// PrintGeneralHelp lists all available commands with short summaries.
+// Output order depends on map iteration and is not guaranteed to be stable.
 func PrintGeneralHelp() {
 	fmt.Println("usage: kitkat <command> [arguments]")
 	fmt.Println("\nThese are the common KitKat commands:")
@@ -79,6 +85,8 @@ func PrintGeneralHelp() {
 	fmt.Println("\nUse 'kitkat help <command>' for more information about a command")
 }
 
+// PrintCommandHelp prints detailed usage text for a specific command.
+// Unknown commands produce a fallback message.
 func PrintCommandHelp(command string) {
 	if help, ok := helpMessages[command]; ok {
 		fmt.Println(help.Usage)

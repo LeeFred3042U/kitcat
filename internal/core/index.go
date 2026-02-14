@@ -6,13 +6,15 @@ import (
 	"os"
 )
 
-// IndexEntry represents a file in the staging area
+// IndexEntry represents a file in the staging area for the legacy JSON index format.
+// Unlike plumbing.IndexEntry, this stores only path and hash as strings.
 type IndexEntry struct {
 	Path string
 	Hash string
 }
 
-// LoadIndex reads the .kitkat/index file
+// LoadIndex reads the JSON-based .kitcat/index file and reconstructs entries.
+// Missing or empty files return an empty slice without error.
 func LoadIndex() ([]IndexEntry, error) {
 	data, err := os.ReadFile(IndexPath)
 	if os.IsNotExist(err) {
@@ -22,13 +24,14 @@ func LoadIndex() ([]IndexEntry, error) {
 		return nil, err
 	}
 
+	// Empty index is treated as valid state.
 	if len(data) == 0 {
 		return []IndexEntry{}, nil
 	}
 
 	var entryMap map[string]string
-	err = json.Unmarshal(data, &entryMap)
-	if err != nil {
+	if err := json.Unmarshal(data, &entryMap); err != nil {
+		// Intentionally hides JSON details to avoid leaking format internals.
 		return nil, fmt.Errorf("index file corrupted")
 	}
 
@@ -39,7 +42,8 @@ func LoadIndex() ([]IndexEntry, error) {
 	return entries, nil
 }
 
-// SaveIndex writes the index back to disk
+// SaveIndex serializes entries into a JSON map[path]hash and writes it to disk.
+// The file is fully rewritten each time; no atomic write or locking is performed.
 func SaveIndex(entries []IndexEntry) error {
 	file, err := os.Create(IndexPath)
 	if err != nil {
@@ -57,8 +61,8 @@ func SaveIndex(entries []IndexEntry) error {
 		return err
 	}
 
-	_, err = file.Write(data)
-	if err != nil {
+	// Write replaces existing content; partial writes can leave index corrupted.
+	if _, err := file.Write(data); err != nil {
 		return fmt.Errorf("unable to write to index")
 	}
 	return nil

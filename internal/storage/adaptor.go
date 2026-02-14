@@ -14,11 +14,13 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 )
 
-// ObjectsDir is where objects are stored
+// ObjectsDir defines the root directory for all stored objects.
 const ObjectsDir = ".kitcat/objects"
 
 var ErrNoCommits = errors.New("no commits found")
 
+// ReadObject locates, decompresses, and returns the raw payload of an
+// object by stripping the "<type> <size>\0" header used in storage.
 func ReadObject(hash string) ([]byte, error) {
 	if len(hash) < 2 {
 		return nil, fmt.Errorf("invalid hash: %s", hash)
@@ -41,6 +43,7 @@ func ReadObject(hash string) ([]byte, error) {
 		return nil, err
 	}
 
+	// Object header ends at the first null byte; payload follows immediately.
 	nullIdx := bytes.IndexByte(raw, 0)
 	if nullIdx == -1 {
 		return nil, fmt.Errorf("malformed object %s", hash)
@@ -49,12 +52,14 @@ func ReadObject(hash string) ([]byte, error) {
 	return raw[nullIdx+1:], nil
 }
 
-// GetRef reads a reference file content
+// GetRef reads the content of a reference file and trims whitespace.
 func GetRef(name string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(".kitcat", name))
 	return strings.TrimSpace(string(b)), err
 }
 
+// ReadCommits walks commit history starting from HEAD and returns a linear
+// slice of commits by following parent links until root or cycle detection.
 func ReadCommits() ([]models.Commit, error) {
 	head, err := GetLastCommit()
 	if err != nil {
@@ -69,6 +74,7 @@ func ReadCommits() ([]models.Commit, error) {
 	seen := make(map[string]bool)
 
 	for {
+		// Prevent infinite loops if history becomes cyclic due to corruption.
 		if seen[curr.ID] {
 			break
 		}
@@ -87,6 +93,7 @@ func ReadCommits() ([]models.Commit, error) {
 	return commits, nil
 }
 
+// GetLastCommit resolves HEAD to a commit hash, supporting symbolic refs.
 func GetLastCommit() (models.Commit, error) {
 	head, err := os.ReadFile(".kitcat/HEAD")
 	if os.IsNotExist(err) {
@@ -97,6 +104,8 @@ func GetLastCommit() (models.Commit, error) {
 	}
 
 	ref := strings.TrimSpace(string(head))
+
+	// Resolve symbolic refs like "ref: refs/heads/main".
 	if strings.HasPrefix(ref, "ref: ") {
 		ref = strings.TrimPrefix(ref, "ref: ")
 		data, err := os.ReadFile(".kitcat/" + ref)
@@ -112,6 +121,7 @@ func GetLastCommit() (models.Commit, error) {
 	return FindCommit(ref)
 }
 
+// FindCommit reads a commit object and parses its metadata into a model.
 func FindCommit(hash string) (models.Commit, error) {
 	raw, err := ReadObject(hash)
 	if err != nil {
@@ -120,11 +130,15 @@ func FindCommit(hash string) (models.Commit, error) {
 	return parseCommit(hash, raw)
 }
 
+// parseCommit extracts minimal metadata from a raw commit object payload.
+// Only selected headers are parsed; others are ignored intentionally.
 func parseCommit(hash string, data []byte) (models.Commit, error) {
 	s := string(data)
 	lines := strings.Split(s, "\n")
 	c := models.Commit{ID: hash}
 	var i int
+
+	// Parse header lines until the first empty line separating message body.
 	for i = 0; i < len(lines); i++ {
 		if lines[i] == "" {
 			break
@@ -139,18 +153,20 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 		case "parent":
 			c.Parent = parts[1]
 		case "author":
-			// Simple author parsing: "Name <email> timestamp"
-			// Just taking the whole string for now to avoid parsing complexity here
+			// Author parsing is intentionally shallow to avoid tight coupling
+			// to timestamp/email parsing logic at this layer.
 			c.AuthorName = parts[1]
 		}
 	}
+
 	if i < len(lines) {
 		c.Message = strings.Join(lines[i+1:], "\n")
 	}
 	return c, nil
 }
 
-// HashFile hashes a file on disk without writing it
+// HashFile reads a file from disk and stores it as a blob object,
+// returning the resulting object hash.
 func HashFile(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -159,9 +175,11 @@ func HashFile(path string) (string, error) {
 	return plumbing.HashAndWriteObject(content, "blob")
 }
 
-// FindMergeBase finds the common ancestor (simple version).
+// FindMergeBase performs a simple ancestry search to locate the first
+// common ancestor between two commits. Assumes linear history and does
+// not account for complex DAG traversal or multiple parents.
 func FindMergeBase(h1, h2 string) (string, error) {
-	// Simple traversal: Get all ancestors of h1, then walk h2 up until match
+	// Record all ancestors of h1.
 	ancestors := make(map[string]bool)
 
 	curr := h1
@@ -174,6 +192,7 @@ func FindMergeBase(h1, h2 string) (string, error) {
 		curr = c.Parent
 	}
 
+	// Walk ancestors of h2 until a match is found.
 	curr = h2
 	for curr != "" {
 		if ancestors[curr] {

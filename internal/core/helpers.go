@@ -364,3 +364,32 @@ func EnsureArgs(args []string, min, max int, commandName string) {
 		os.Exit(2)
 	}
 }
+
+// ResolveCommitRef resolves a commit reference (HEAD, branch name, or commit hash) to a commit hash.
+// Supports:
+// - "HEAD" -> resolves to current HEAD commit hash
+// - branch name -> resolves to branch's commit hash
+// - commit hash -> returns as-is (validated by caller)
+func ResolveCommitRef(ref string) (string, error) {
+	// Case 1: HEAD reference
+	if ref == "HEAD" {
+		headCommit, err := GetHeadCommit()
+		if err != nil {
+			return "", fmt.Errorf("resolving HEAD: %w", err)
+		}
+		return headCommit.ID, nil
+	}
+
+	// Case 2: Branch name
+	if IsBranch(ref) {
+		branchRefPath := filepath.Join(".kitcat", "refs", "heads", ref)
+		hashBytes, err := os.ReadFile(branchRefPath)
+		if err != nil {
+			return "", fmt.Errorf("reading branch %s: %w", ref, err)
+		}
+		return strings.TrimSpace(string(hashBytes)), nil
+	}
+
+	// Case 3: Assume it's a commit hash (caller will validate)
+	return ref, nil
+}

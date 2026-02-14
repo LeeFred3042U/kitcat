@@ -343,10 +343,7 @@ var commands = map[string]CommandFunc{
 		os.Exit(0)
 	},
 	"reset": func(args []string) {
-		if len(args) < 2 {
-			fmt.Println("Usage: kitkat reset [--soft | --mixed | --hard] <commit-hash>")
-			os.Exit(2)
-		}
+		core.EnsureArgs(args, 1, -1, "reset")
 
 		mode := ""
 		commitHash := ""
@@ -375,15 +372,21 @@ var commands = map[string]CommandFunc{
 				commitHash = safeNext(i)
 				i += 2 // Skip current and next arg
 			default:
+				if commitHash != "" {
+					fmt.Println("Error: too many arguments")
+					os.Exit(2)
+				}
 				commitHash = args[i]
-				mode = core.ResetMixed
+				if mode == "" {
+					mode = core.ResetMixed
+				}
 				i++
 			}
 		}
 
 		if mode == "" {
 			fmt.Println("Error: must specify --soft, --mixed, or --hard")
-			fmt.Println("Usage: kitkat reset [--soft | --mixed | --hard] <commit-hash>")
+			fmt.Println("Usage: kitcat reset [--soft | --mixed | --hard] <commit-hash>")
 			os.Exit(2)
 		}
 
@@ -391,6 +394,14 @@ var commands = map[string]CommandFunc{
 			fmt.Println("Error: commit hash required")
 			os.Exit(2)
 		}
+
+		// Resolve HEAD or branch name to commit hash
+		resolvedHash, err := core.ResolveCommitRef(commitHash)
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		commitHash = resolvedHash
 
 		if err := core.Reset(commitHash, mode); err != nil {
 			fmt.Println("Error:", err)

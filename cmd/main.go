@@ -343,55 +343,39 @@ var commands = map[string]CommandFunc{
 		os.Exit(0)
 	},
 	"reset": func(args []string) {
-		if len(args) < 2 {
-			fmt.Println("Usage: kitkat reset [--soft | --mixed | --hard] <commit-hash>")
-			os.Exit(2)
-		}
+		// Phase 1: Parse mode flags
+		mode := core.ResetMixed // default
+		positionalArgs := []string{}
 
-		mode := ""
-		commitHash := ""
-
-		// Helper function to safely get next argument
-		safeNext := func(i int) string {
-			if i+1 < len(args) {
-				return args[i+1]
-			}
-			return ""
-		}
-
-		i := 0
-		for i < len(args) {
-			switch args[i] {
-			case "--" + core.ResetSoft:
+		for _, arg := range args {
+			switch arg {
+			case "--soft":
 				mode = core.ResetSoft
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
-			case "--" + core.ResetMixed:
+			case "--mixed":
 				mode = core.ResetMixed
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
-			case "--" + core.ResetHard:
+			case "--hard":
 				mode = core.ResetHard
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
 			default:
-				commitHash = args[i]
-				mode = core.ResetMixed
-				i++
+				positionalArgs = append(positionalArgs, arg)
 			}
 		}
 
-		if mode == "" {
-			fmt.Println("Error: must specify --soft, --mixed, or --hard")
-			fmt.Println("Usage: kitkat reset [--soft | --mixed | --hard] <commit-hash>")
+		// Phase 2: Validate positional arguments
+		if len(positionalArgs) == 0 {
+			fmt.Println("Error: commit reference required")
+			fmt.Println("Usage: kitcat reset [--soft | --mixed | --hard] <commit-hash>")
 			os.Exit(2)
 		}
 
-		if commitHash == "" {
-			fmt.Println("Error: commit hash required")
+		if len(positionalArgs) > 1 {
+			fmt.Println("Error: too many arguments")
+			fmt.Println("Usage: kitcat reset [--soft | --mixed | --hard] <commit-hash>")
 			os.Exit(2)
 		}
 
+		commitHash := positionalArgs[0]
+
+		// Phase 3: Execute reset
 		if err := core.Reset(commitHash, mode); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)

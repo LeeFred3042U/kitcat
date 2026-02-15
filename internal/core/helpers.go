@@ -3,8 +3,8 @@ package core
 import (
 	"encoding/hex"
 	"fmt"
-	"os"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,6 +12,47 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
+
+// FindRepoRoot searches for the .kitcat directory starting from the current
+// working directory and walking up the tree. Returns the absolute path to
+// the repository root or an error if not found.
+// This function is pure and does not mutate the current working directory.
+func FindRepoRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", err
+	}
+
+	dir := absCwd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, RepoDir)); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("not a kitcat repository (or any of the parent directories): %s", RepoDir)
+		}
+		dir = parent
+	}
+}
+
+// IsRepoInitialized checks if a repository exists and switches the Current
+// Working Directory (CWD) to the repository root if found.
+// Wraps FindRepoRoot for backward compatibility with main.go command flow.
+func IsRepoInitialized() bool {
+	root, err := FindRepoRoot()
+	if err != nil {
+		return false
+	}
+	if err := os.Chdir(root); err != nil {
+		return false
+	}
+	return true
+}
 
 // UpdateWorkspaceAndIndex forces the working directory and index to match
 // the tree snapshot of a given commit. Files missing from the target tree
@@ -36,21 +77,30 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 	}
 
 	// Restore files from object storage.
-	for path, hash := range targetTree {
-		content, err := storage.ReadObject(hash)
+	for path, entry := range targetTree {
+		content, err := storage.ReadObject(entry.Hash)
 		if err != nil {
 			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, content, 0644); err != nil {
+
+		perm := os.FileMode(0644)
+		var modeVal uint32
+		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
+			if (modeVal & 0111) != 0 {
+				perm = 0755
+			}
+		}
+
+		if err := os.WriteFile(path, content, perm); err != nil {
 			return err
 		}
 	}
 
 	// Rewrite index to mirror target tree.
-	return storage.WriteIndex(targetTree)
+	return storage.WriteIndexFromTree(targetTree)
 }
 
 // GetHeadState returns the active branch name or raw commit hash if detached.
@@ -101,14 +151,14 @@ func VerifyCleanTree() error {
 	}
 
 	for path, entry := range index {
-		headHash, ok := headTree[path]
+		headEntry, ok := headTree[path]
 		if !ok {
 			return fmt.Errorf("dirty: %s", path)
 		}
 
 		// Convert binary hash to hex for comparison with tree map.
 		entryHashHex := hex.EncodeToString(entry.Hash[:])
-		if entryHashHex != headHash {
+		if entryHashHex != headEntry.Hash {
 			return fmt.Errorf("dirty: %s", path)
 		}
 	}
@@ -133,12 +183,18 @@ func RestoreIndexFromCommit(commitID string) error {
 			delete(index, k)
 		}
 
-		for path, hash := range tree {
-			hb, _ := storage.HexToHash(hash)
+		for path, entry := range tree {
+			hb, _ := storage.HexToHash(entry.Hash)
+
+			var mode uint32
+			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
+				mode = 0100644
+			}
+
 			index[path] = plumbing.IndexEntry{
 				Path: path,
 				Hash: hb,
-				Mode: 0100644,
+				Mode: mode,
 			}
 		}
 		return nil
@@ -148,7 +204,7 @@ func RestoreIndexFromCommit(commitID string) error {
 // IsWorkDirDirty checks staged and unstaged differences between HEAD, index,
 // and working directory. Returns true on first detected change.
 func IsWorkDirDirty() (bool, error) {
-	headTree := make(map[string]string)
+	headTree := make(map[string]storage.TreeEntry)
 	lastCommit, err := GetHeadCommit()
 	if err == nil {
 		tree, parseErr := storage.ParseTree(lastCommit.TreeHash)
@@ -173,7 +229,7 @@ func IsWorkDirDirty() (bool, error) {
 	}
 
 	for path := range allPaths {
-		headHash, inHead := headTree[path]
+		headEntry, inHead := headTree[path]
 		indexEntry, inIndex := index[path]
 
 		var indexHash string
@@ -181,7 +237,7 @@ func IsWorkDirDirty() (bool, error) {
 			indexHash = hex.EncodeToString(indexEntry.Hash[:])
 		}
 
-		if (inIndex && !inHead) || (!inIndex && inHead) || (inIndex && inHead && headHash != indexHash) {
+		if (inIndex && !inHead) || (!inIndex && inHead) || (inIndex && inHead && headEntry.Hash != indexHash) {
 			return true, nil
 		}
 	}
@@ -282,28 +338,13 @@ func IsSafePath(path string) bool {
 	return true
 }
 
-// IsRepoInitialized searches upward for RepoDir and switches cwd to repo root.
-func IsRepoInitialized() bool {
-	cwd, err := os.Getwd()
-	if err != nil { return false }
-	for {
-		if _, err := os.Stat(filepath.Join(cwd, RepoDir)); err == nil {
-			if err := os.Chdir(cwd); err != nil {
-				return false
-			}
-			return true
-		}
-		parent := filepath.Dir(cwd)
-		if parent == cwd { return false }
-		cwd = parent
-	}
-}
-
 // SafeWrite performs atomic file updates by writing to a temp file and renaming.
 func SafeWrite(filename string, data []byte, perm os.FileMode) error {
 	dirPath := filepath.Dir(filename)
 	f, err := os.CreateTemp(dirPath, "atomic-")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	tmpName := f.Name()
 	defer os.Remove(tmpName)
 
@@ -384,4 +425,28 @@ func copyRecursive(src, dst string) error {
 
 	// Preserve original file mode for consistency with git mv fallback behaviour.
 	return out.Chmod(info.Mode())
+}
+
+// checkoutIndexFromMap writes tree contents directly into the working
+// directory. Existing files may be overwritten.
+func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
+	for path, entry := range tree {
+		content, err := storage.ReadObject(entry.Hash)
+		if err != nil {
+			return err
+		}
+
+		perm := os.FileMode(0644)
+		var modeVal uint32
+		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
+			if (modeVal & 0111) != 0 {
+				perm = 0755
+			}
+		}
+
+		if err := os.WriteFile(path, content, perm); err != nil {
+			return err
+		}
+	}
+	return nil
 }

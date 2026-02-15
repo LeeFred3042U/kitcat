@@ -30,12 +30,10 @@ func hashCommit(c models.Commit) string {
 // It prevents empty commits and returns the full commit object and a formatted summary
 func Commit(message string) (models.Commit, string, error) {
 	authorName, _, _ := GetConfig("user.name")
-	if authorName == "" {
-		authorName = "Unknown"
-	}
 	authorEmail, _, _ := GetConfig("user.email")
-	if authorEmail == "" {
-		authorEmail = "unknown@example.com"
+
+	if authorName == "" || authorEmail == "" {
+		return models.Commit{}, "", fmt.Errorf("author identity not configured. Please set user.name and user.email:\n  kitcat config user.name \"Your Name\"\n  kitcat config user.email \"you@example.com\"")
 	}
 
 	treeHash, err := storage.CreateTree()

@@ -23,118 +23,164 @@
 package plumbing
 
 import (
-	"bufio"
+	"bytes"
+	"crypto/sha1"
 	"encoding/binary"
 	"errors"
-	"io"
+	"fmt"
 	"os"
 )
 
 // ReadIndex parses a Git index file from disk and reconstructs
 // in-memory IndexEntry records from the binary format.
+//
+// Compatibility:
+//   - Supports Git Index Version 2 and 3.
+//   - Version 4 (prefix-compressed paths) is intentionally rejected.
+//   - Verifies SHA-1 checksum to prevent silent corruption.
+//   - Correctly consumes extended flags and padding to maintain alignment.
+//   - Safely skips unknown extension blocks.
 func ReadIndex(path string) ([]IndexEntry, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, os.ErrNotExist
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 
-	r := bufio.NewReader(f)
-
-	// Validate index header signature to avoid interpreting arbitrary files
-	// as index data, which would corrupt parsing offsets.
-	var signature [4]byte
-	if _, err := io.ReadFull(r, signature[:]); err != nil {
-		return nil, err
+	// Minimum valid size:
+	// Header (12 bytes) + Checksum footer (20 bytes)
+	if len(data) < 32 {
+		return nil, errors.New("index file too small")
 	}
-	if string(signature[:]) != "DIRC" {
+
+	// Checksum Verification
+	// Git appends a SHA-1 checksum of the entire file (excluding the footer).
+	toHash := data[:len(data)-20]
+	expectedSum := data[len(data)-20:]
+
+	actualSum := sha1.Sum(toHash)
+	if !bytes.Equal(actualSum[:], expectedSum) {
+		return nil, errors.New("index checksum mismatch: file corrupted or tampered")
+	}
+
+	// Parse Header
+	if string(data[0:4]) != "DIRC" {
 		return nil, errors.New("invalid index signature")
 	}
 
-	var version, count uint32
-	if err := binary.Read(r, binary.BigEndian, &version); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(r, binary.BigEndian, &count); err != nil {
-		return nil, err
+	version := binary.BigEndian.Uint32(data[4:8])
+
+	// Only V2 and V3 are supported.
+	// V4 introduces path compression which cannot be decoded safely
+	// without a dedicated implementation.
+	if version < 2 || version > 3 {
+		return nil, fmt.Errorf("unsupported index version %d (only v2/v3 supported)", version)
 	}
 
+	count := binary.BigEndian.Uint32(data[8:12])
 	entries := make([]IndexEntry, count)
 
+	offset := 12 // Start immediately after header
+
+	// Parse Entries
 	for i := 0; i < int(count); i++ {
+		// Ensure enough bytes remain for fixed-width metadata.
+		if offset+62 > len(data) {
+			return nil, errors.New("unexpected EOF in index entries")
+		}
+
 		var e IndexEntry
+
+		// Stat metadata fields must be read in strict order.
+		e.CTimeSec = binary.BigEndian.Uint32(data[offset : offset+4])
+		e.CTimeNSec = binary.BigEndian.Uint32(data[offset+4 : offset+8])
+		e.MTimeSec = binary.BigEndian.Uint32(data[offset+8 : offset+12])
+		e.MTimeNSec = binary.BigEndian.Uint32(data[offset+12 : offset+16])
+		e.Dev = binary.BigEndian.Uint32(data[offset+16 : offset+20])
+		e.Ino = binary.BigEndian.Uint32(data[offset+20 : offset+24])
+		e.Mode = binary.BigEndian.Uint32(data[offset+24 : offset+28])
+		e.UID = binary.BigEndian.Uint32(data[offset+28 : offset+32])
+		e.GID = binary.BigEndian.Uint32(data[offset+32 : offset+36])
+		e.Size = binary.BigEndian.Uint32(data[offset+36 : offset+40])
+
+		offset += 40
+
+		// Copy 20-byte object hash.
+		copy(e.Hash[:], data[offset:offset+20])
+		offset += 20
+
+		// Flags contain stage bits and optional extended flag indicator.
+		flags := binary.BigEndian.Uint16(data[offset : offset+2])
+		offset += 2
+
+		// Extract merge stage (0–3).
+		e.Stage = uint8((flags >> 12) & 0x3)
+
 		
-		// Local helper keeps binary reads consistent and reduces repeated error checks.
-		read := func(data interface{}) error {
-			return binary.Read(r, binary.BigEndian, data)
+		// Handle Extended Flags		
+		// If bit 0x4000 is set, an additional 16-bit flag field follows.
+		// We ignore the contents but MUST consume it to maintain alignment.
+		if (flags & 0x4000) != 0 {
+			if offset+2 > len(data) {
+				return nil, errors.New("unexpected EOF reading extended flags")
+			}
+			offset += 2
 		}
 
-		// Fixed-width stat metadata must be read in strict order to maintain alignment.
-		if err := read(&e.CTimeSec); err != nil { return nil, err }
-		if err := read(&e.CTimeNSec); err != nil { return nil, err }
-		if err := read(&e.MTimeSec); err != nil { return nil, err }
-		if err := read(&e.MTimeNSec); err != nil { return nil, err }
-		if err := read(&e.Dev); err != nil { return nil, err }
-		if err := read(&e.Ino); err != nil { return nil, err }
-		if err := read(&e.Mode); err != nil { return nil, err }
-		if err := read(&e.UID); err != nil { return nil, err }
-		if err := read(&e.GID); err != nil { return nil, err }
-		if err := read(&e.Size); err != nil { return nil, err }
-
-		if _, err := io.ReadFull(r, e.Hash[:]); err != nil {
-			return nil, err
-		}
-
-		var flags uint16
-		if err := binary.Read(r, binary.BigEndian, &flags); err != nil {
-			return nil, err
-		}
 		
-		// Path names are stored as null-terminated byte sequences.
-		// Reading byte-by-byte avoids over-reading into the next entry.
-		var nameBuf []byte
-		for {
-			b, err := r.ReadByte()
-			if err != nil {
-				return nil, err
-			}
-			if b == 0 {
-				break
-			}
-			nameBuf = append(nameBuf, b)
+		// Parse Path (Null-terminated)		
+		idx := bytes.IndexByte(data[offset:], 0)
+		if idx == -1 {
+			return nil, errors.New("malformed index: path not null-terminated")
 		}
-		e.Path = string(nameBuf)
 
-		// Entries are padded with null bytes to maintain 8-byte alignment.
-		// Misalignment would cause subsequent reads to desynchronize.
-		entrySize := 62 + len(nameBuf) + 1
-		pad := 8 - (entrySize % 8)
-		for j := 0; j < pad; j++ {
-			if _, err := r.ReadByte(); err != nil {
-				// EOF may occur when padding reaches file end.
-				if err == io.EOF {
-					break
-				}
-				return nil, err
+		nameEnd := offset + idx
+		e.Path = string(data[offset:nameEnd])
+
+		// Move past the null byte.
+		offset = nameEnd + 1
+
+		// Handle Entry Padding
+		// Entry size must be aligned to an 8-byte boundary.
+		baseSize := 62
+		if (flags & 0x4000) != 0 {
+			baseSize += 2 // extended flag field
+		}
+
+		currentEntryLen := baseSize + len(e.Path) + 1
+		pad := 8 - (currentEntryLen % 8)
+		if pad != 8 {
+			if offset+pad > len(data) {
+				return nil, errors.New("malformed index: padding out of bounds")
 			}
+			offset += pad
 		}
 
 		entries[i] = e
 	}
 
-	// Attempt to read optional extension blocks. Unknown extensions are skipped
-	// by discarding their payload to keep reader aligned for checksum/footer.
-	var extSig [4]byte
-	if _, err := io.ReadFull(r, extSig[:]); err == nil {
-		var extSize uint32
-		if err := binary.Read(r, binary.BigEndian, &extSize); err == nil {
-			if _, err := r.Discard(int(extSize)); err != nil {
-				return nil, err
-			}
+	// Parse Extensions (Skip Safely)
+	// Extension blocks exist between entries and the checksum footer.
+	for offset < len(data)-20 {
+		if offset+8 > len(data)-20 {
+			break // Not enough space for a valid extension header
 		}
+
+		// Signature (ignored)
+		offset += 4
+
+		// Size
+		extSize := binary.BigEndian.Uint32(data[offset : offset+4])
+		offset += 4
+
+		if offset+int(extSize) > len(data)-20 {
+			return nil, errors.New("malformed index extension size")
+		}
+
+		// Skip payload
+		offset += int(extSize)
 	}
 
 	return entries, nil

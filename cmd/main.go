@@ -343,57 +343,37 @@ var commands = map[string]CommandFunc{
 		os.Exit(0)
 	},
 	"reset": func(args []string) {
-		core.EnsureArgs(args, 1, -1, "reset")
+		// Phase 1: Parse mode flags and collect positional args
+		mode := core.ResetMixed // default
+		positionalArgs := []string{}
 
-		mode := ""
-		commitHash := ""
-
-		// Helper function to safely get next argument
-		safeNext := func(i int) string {
-			if i+1 < len(args) {
-				return args[i+1]
-			}
-			return ""
-		}
-
-		i := 0
-		for i < len(args) {
-			switch args[i] {
+		for _, arg := range args {
+			switch arg {
 			case "--" + core.ResetSoft:
 				mode = core.ResetSoft
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
 			case "--" + core.ResetMixed:
 				mode = core.ResetMixed
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
 			case "--" + core.ResetHard:
 				mode = core.ResetHard
-				commitHash = safeNext(i)
-				i += 2 // Skip current and next arg
 			default:
-				if commitHash != "" {
-					fmt.Println("Error: too many arguments")
-					os.Exit(2)
-				}
-				commitHash = args[i]
-				if mode == "" {
-					mode = core.ResetMixed
-				}
-				i++
+				positionalArgs = append(positionalArgs, arg)
 			}
 		}
 
-		if mode == "" {
-			fmt.Println("Error: must specify --soft, --mixed, or --hard")
+		// Phase 2: Validate positional arguments
+		if len(positionalArgs) == 0 {
+			fmt.Println("Error: commit reference required")
 			fmt.Println("Usage: kitcat reset [--soft | --mixed | --hard] <commit-hash>")
 			os.Exit(2)
 		}
 
-		if commitHash == "" {
-			fmt.Println("Error: commit hash required")
+		if len(positionalArgs) > 1 {
+			fmt.Println("Error: too many arguments")
+			fmt.Println("Usage: kitcat reset [--soft | --mixed | --hard] <commit-hash>")
 			os.Exit(2)
 		}
+
+		commitHash := positionalArgs[0]
 
 		// Resolve HEAD or branch name to commit hash
 		resolvedHash, err := core.ResolveCommitRef(commitHash)
@@ -403,6 +383,7 @@ var commands = map[string]CommandFunc{
 		}
 		commitHash = resolvedHash
 
+		// Phase 3: Execute reset
 		if err := core.Reset(commitHash, mode); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)

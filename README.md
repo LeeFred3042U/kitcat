@@ -125,6 +125,5 @@ Refer to the official Git documentation, to understand how git commands work:
 - [Git Documentation (Official)](https://git-scm.com/docs/git)
 
 ---
-
 > [!CAUTION]
-> **Disclaimer:** kitcat is a toy project for educational purposes. Do not use it as your primary version control system for production work.
+> **Disclaimer:** kitcat is an educational project and may not be suitable for production-critical data.

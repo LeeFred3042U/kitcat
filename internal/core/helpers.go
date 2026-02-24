@@ -1,17 +1,66 @@
 package core
 
 import (
+	"path/filepath"
 	"encoding/hex"
+	"os/exec"
+	"strings"
+	"bufio"
+	"bytes"
+	"time"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
+	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
+
+// CaptureViaEditor opens the user's preferred terminal editor to capture text.
+// It strips out comments (lines starting with #) before returning the text.
+func CaptureViaEditor(filename, initialContent string) (string, error) {
+	editor := os.Getenv("GIT_EDITOR")
+	if editor == "" {
+		editor = os.Getenv("EDITOR")
+	}
+	if editor == "" {
+		editor = "vi" // Fallback to vi, standard Unix behavior
+	}
+
+	msgFilePath := filepath.Join(constant.RepoDir, filename)
+	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0644); err != nil {
+		return "", err
+	}
+	defer os.Remove(msgFilePath) // Always clean up
+
+	cmd := exec.Command(editor, msgFilePath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("editor aborted")
+	}
+
+	content, err := os.ReadFile(msgFilePath)
+	if err != nil {
+		return "", err
+	}
+
+	// Strip comments and trim whitespace
+	var finalLines []string
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "#") {
+			finalLines = append(finalLines, line)
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(finalLines, "\n")), nil
+}
 
 // FindRepoRoot searches for the .kitcat directory starting from the current
 // working directory and walking up the tree. Returns the absolute path to
@@ -29,12 +78,12 @@ func FindRepoRoot() (string, error) {
 
 	dir := absCwd
 	for {
-		if _, err := os.Stat(filepath.Join(dir, RepoDir)); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, constant.RepoDir)); err == nil {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("not a kitcat repository (or any of the parent directories): %s", RepoDir)
+			return "", fmt.Errorf("not a kitcat repository (or any of the parent directories): %s", constant.RepoDir)
 		}
 		dir = parent
 	}
@@ -52,55 +101,6 @@ func IsRepoInitialized() bool {
 		return false
 	}
 	return true
-}
-
-// UpdateWorkspaceAndIndex forces the working directory and index to match
-// the tree snapshot of a given commit. Files missing from the target tree
-// are deleted, and existing files are overwritten.
-func UpdateWorkspaceAndIndex(commitHash string) error {
-	commit, err := storage.FindCommit(commitHash)
-	if err != nil {
-		return err
-	}
-	targetTree, err := storage.ParseTree(commit.TreeHash)
-	if err != nil {
-		return err
-	}
-
-	currentIndex, _ := storage.LoadIndex()
-
-	// Remove files that exist in index but not in target tree.
-	for path := range currentIndex {
-		if _, exists := targetTree[path]; !exists {
-			os.Remove(path)
-		}
-	}
-
-	// Restore files from object storage.
-	for path, entry := range targetTree {
-		content, err := storage.ReadObject(entry.Hash)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-
-		perm := os.FileMode(0644)
-		var modeVal uint32
-		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
-			if (modeVal & 0111) != 0 {
-				perm = 0755
-			}
-		}
-
-		if err := os.WriteFile(path, content, perm); err != nil {
-			return err
-		}
-	}
-
-	// Rewrite index to mirror target tree.
-	return storage.WriteIndexFromTree(targetTree)
 }
 
 // GetHeadState returns the active branch name or raw commit hash if detached.
@@ -250,7 +250,7 @@ func IsWorkDirDirty() (bool, error) {
 		cleanPath := filepath.Clean(path)
 
 		// Skip repo metadata directory.
-		if info.IsDir() || strings.HasPrefix(cleanPath, RepoDir+string(os.PathSeparator)) || cleanPath == RepoDir {
+		if info.IsDir() || strings.HasPrefix(cleanPath, constant.RepoDir+string(os.PathSeparator)) || cleanPath == constant.RepoDir {
 			return nil
 		}
 
@@ -284,7 +284,7 @@ func IsWorkDirDirty() (bool, error) {
 // UpdateBranchPointer updates either the branch reference or HEAD itself.
 // Uses SafeWrite to avoid partial writes during ref updates.
 func UpdateBranchPointer(commitHash string) error {
-	headData, err := os.ReadFile(HeadPath)
+	headData, err := os.ReadFile(constant.HeadPath)
 	if err != nil {
 		return fmt.Errorf("unable to read HEAD file: %w", err)
 	}
@@ -299,7 +299,7 @@ func UpdateBranchPointer(commitHash string) error {
 		return nil
 	}
 
-	if err := SafeWrite(HeadPath, []byte(commitHash), 0644); err != nil {
+	if err := SafeWrite(constant.HeadPath, []byte(commitHash), 0644); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
 	return nil
@@ -307,7 +307,7 @@ func UpdateBranchPointer(commitHash string) error {
 
 // readHead resolves HEAD to a commit hash, following symbolic refs.
 func readHead() (string, error) {
-	headData, err := os.ReadFile(HeadPath)
+	headData, err := os.ReadFile(constant.HeadPath)
 	if err != nil {
 		return "", err
 	}
@@ -449,4 +449,54 @@ func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
 		}
 	}
 	return nil
+}
+
+// ReflogAppend writes a standard git-style entry to the reflog for a given reference.
+func ReflogAppend(refname, oldHash, newHash, message string) error {
+	name, _, _ := GetConfig("user.name")
+	email, _, _ := GetConfig("user.email")
+	if name == "" {
+		name = "Unknown"
+	}
+	if email == "" {
+		email = "unknown@example.com"
+	}
+
+	timestamp := time.Now().Unix()
+	tzOffset := time.Now().Format("-0700")
+
+	if oldHash == "" {
+		oldHash = "0000000000000000000000000000000000000000"
+	}
+
+	logEntry := fmt.Sprintf("%s %s %s <%s> %d %s\t%s\n", oldHash, newHash, name, email, timestamp, tzOffset, message)
+
+	logPath := filepath.Join(".kitcat", "logs", refname)
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.WriteString(logEntry)
+	return err
+}
+
+// UpdateWorkspaceAndIndex forces the working directory and index to match
+// the tree snapshot of a given commit.
+func UpdateWorkspaceAndIndex(commitHash string) error {
+	commit, err := storage.FindCommit(commitHash)
+	if err != nil {
+		return err
+	}
+	
+	// Delegate to the new architecture logic
+	if err := CheckoutTree(commit.TreeHash); err != nil {
+		return err
+	}
+	return ReadTree(commit.TreeHash)
 }

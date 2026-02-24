@@ -1,0 +1,6 @@
+0000000000000000000000000000000000000000 9fd7d1f788ac1870984932fc8c2af119dca5fa71 Zeeshan <z@example.com> 1771760918 +0530	commit: A: Base commit
+9fd7d1f788ac1870984932fc8c2af119dca5fa71 9fd7d1f788ac1870984932fc8c2af119dca5fa71 Zeeshan <z@example.com> 1771760918 +0530	checkout: moving to feature
+9fd7d1f788ac1870984932fc8c2af119dca5fa71 10e0d060aa062fa37f814ba3f6f81c97e8797a2b Zeeshan <z@example.com> 1771760919 +0530	commit: B: Feature changes Banana to Blueberry
+10e0d060aa062fa37f814ba3f6f81c97e8797a2b 9fd7d1f788ac1870984932fc8c2af119dca5fa71 Zeeshan <z@example.com> 1771760920 +0530	checkout: moving to main
+9fd7d1f788ac1870984932fc8c2af119dca5fa71 3bf3f05f6bb50c41a6bf0d710d57a758eee504b0 Zeeshan <z@example.com> 1771760921 +0530	commit: C: Main changes Banana to Blackberry
+10e0d060aa062fa37f814ba3f6f81c97e8797a2b 10e0d060aa062fa37f814ba3f6f81c97e8797a2b Zeeshan <z@example.com> 1771760935 +0530	reset: moving to 10e0d060aa062fa37f814ba3f6f81c97e8797a2b

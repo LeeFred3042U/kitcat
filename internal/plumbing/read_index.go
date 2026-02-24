@@ -118,8 +118,8 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		// Extract merge stage (0–3).
 		e.Stage = uint8((flags >> 12) & 0x3)
 
-		
-		// Handle Extended Flags		
+
+		// Handle Extended Flags
 		// If bit 0x4000 is set, an additional 16-bit flag field follows.
 		// We ignore the contents but MUST consume it to maintain alignment.
 		if (flags & 0x4000) != 0 {
@@ -129,8 +129,8 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 			offset += 2
 		}
 
-		
-		// Parse Path (Null-terminated)		
+
+		// Parse Path (Null-terminated)
 		idx := bytes.IndexByte(data[offset:], 0)
 		if idx == -1 {
 			return nil, errors.New("malformed index: path not null-terminated")
@@ -177,7 +177,7 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 
 		if offset+int(extSize) > len(data)-20 {
 			return nil, errors.New("malformed index extension size")
-		}
+				}
 
 		// Skip payload
 		offset += int(extSize)

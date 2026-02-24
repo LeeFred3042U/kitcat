@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
 // IndexEntry represents a file in the staging area for the legacy JSON index format.
@@ -16,7 +18,7 @@ type IndexEntry struct {
 // LoadIndex reads the JSON-based .kitcat/index file and reconstructs entries.
 // Missing or empty files return an empty slice without error.
 func LoadIndex() ([]IndexEntry, error) {
-	data, err := os.ReadFile(IndexPath)
+	data, err := os.ReadFile(constant.IndexPath)
 	if os.IsNotExist(err) {
 		return []IndexEntry{}, nil
 	}
@@ -45,7 +47,7 @@ func LoadIndex() ([]IndexEntry, error) {
 // SaveIndex serializes entries into a JSON map[path]hash and writes it to disk.
 // The file is fully rewritten each time; no atomic write or locking is performed.
 func SaveIndex(entries []IndexEntry) error {
-	file, err := os.Create(IndexPath)
+	file, err := os.Create(constant.IndexPath)
 	if err != nil {
 		return err
 	}

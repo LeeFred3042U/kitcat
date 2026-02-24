@@ -2,6 +2,7 @@ package storage
 
 import (
 	"encoding/hex"
+	"fmt"
 	"os"
 	"sort"
 
@@ -53,12 +54,20 @@ func UpdateIndex(fn func(index map[string]plumbing.IndexEntry) error) error {
 // WriteIndex provides a compatibility wrapper used by older tests.
 // Delegates to tree-based reconstruction logic.
 func WriteIndex(simpleMap map[string]string) error {
-	return WriteIndexFromTree(simpleMap)
+	// Convert simple string map to TreeEntry map for compatibility
+	complexMap := make(map[string]TreeEntry, len(simpleMap))
+	for k, v := range simpleMap {
+		complexMap[k] = TreeEntry{
+			Hash: v,
+			Mode: "100644", // Default to safe file mode
+		}
+	}
+	return WriteIndexFromTree(complexMap)
 }
 
 // WriteIndexFromTree rebuilds the index from a tree snapshot by
-// converting hashes into IndexEntry values with default file mode.
-func WriteIndexFromTree(tree map[string]string) error {
+// converting hashes into IndexEntry values.
+func WriteIndexFromTree(tree map[string]TreeEntry) error {
 	// Lock ensures only one writer modifies the index at a time.
 	l, err := lock(IndexPath)
 	if err != nil {
@@ -67,12 +76,18 @@ func WriteIndexFromTree(tree map[string]string) error {
 	defer unlock(l)
 
 	indexMap := make(map[string]plumbing.IndexEntry)
-	for path, hash := range tree {
-		hb, _ := HexToHash(hash)
+	for path, entry := range tree {
+		hb, _ := HexToHash(entry.Hash)
+
+		var mode uint32
+		if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
+			mode = 0100644 // Fallback if mode parsing fails
+		}
+
 		indexMap[path] = plumbing.IndexEntry{
 			Path: path,
 			Hash: hb,
-			Mode: 0100644,
+			Mode: mode,
 		}
 	}
 	return writeMapToDisk(indexMap)

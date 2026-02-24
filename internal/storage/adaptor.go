@@ -1,14 +1,16 @@
 package storage
 
 import (
-	"bytes"
 	"compress/zlib"
+	"path/filepath"
+	"strings"
+	"strconv"
 	"errors"
+	"bytes"
+	"time"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
@@ -130,15 +132,13 @@ func FindCommit(hash string) (models.Commit, error) {
 	return parseCommit(hash, raw)
 }
 
-// parseCommit extracts minimal metadata from a raw commit object payload.
-// Only selected headers are parsed; others are ignored intentionally.
+// parseCommit extracts metadata from a raw commit object payload.
 func parseCommit(hash string, data []byte) (models.Commit, error) {
 	s := string(data)
 	lines := strings.Split(s, "\n")
 	c := models.Commit{ID: hash}
 	var i int
 
-	// Parse header lines until the first empty line separating message body.
 	for i = 0; i < len(lines); i++ {
 		if lines[i] == "" {
 			break
@@ -147,20 +147,37 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 		if len(parts) < 2 {
 			continue
 		}
+		
 		switch parts[0] {
 		case "tree":
 			c.TreeHash = parts[1]
 		case "parent":
 			c.Parent = parts[1]
 		case "author":
-			// Author parsing is intentionally shallow to avoid tight coupling
-			// to timestamp/email parsing logic at this layer.
-			c.AuthorName = parts[1]
+			// Canonical format: Name <email> timestamp timezone
+			line := parts[1]
+			emailStart := strings.IndexByte(line, '<')
+			emailEnd := strings.IndexByte(line, '>')
+			
+			if emailStart != -1 && emailEnd != -1 && emailEnd > emailStart {
+				c.AuthorName = strings.TrimSpace(line[:emailStart])
+				c.AuthorEmail = line[emailStart+1 : emailEnd]
+				
+				timeData := strings.TrimSpace(line[emailEnd+1:])
+				timeParts := strings.Fields(timeData)
+				if len(timeParts) >= 2 {
+					if unixTime, err := strconv.ParseInt(timeParts[0], 10, 64); err == nil {
+						c.Timestamp = time.Unix(unixTime, 0)
+					}
+				}
+			} else {
+				c.AuthorName = line // Fallback if malformed
+			}
 		}
 	}
 
 	if i < len(lines) {
-		c.Message = strings.Join(lines[i+1:], "\n")
+		c.Message = strings.TrimSpace(strings.Join(lines[i+1:], "\n"))
 	}
 	return c, nil
 }

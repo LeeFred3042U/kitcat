@@ -7,7 +7,7 @@ import (
 	"sort"
 )
 
-const tagsDir = ".kitkat/refs/tags"
+const tagsDir = ".kitcat/refs/tags"
 
 // CreateTag creates a lightweight tag by writing a file that points
 // directly to a commit hash. Fails if repository is not initialized
@@ -15,7 +15,7 @@ const tagsDir = ".kitkat/refs/tags"
 func CreateTag(tagName, commitID string) error {
 	// Ensure commands operate only inside a valid repository root.
 	if !IsRepoInitialized() {
-		return fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitkat")
+		return fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitcat")
 	}
 
 	// Tags directory is created lazily to mirror Git ref layout behavior.
@@ -47,7 +47,7 @@ func CreateTag(tagName, commitID string) error {
 func ListTags() ([]string, error) {
 	// Repository validation prevents scanning arbitrary filesystem paths.
 	if !IsRepoInitialized() {
-		return nil, fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitkat")
+		return nil, fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitcat")
 	}
 
 	// Absence of tag directory is treated as empty state rather than error.

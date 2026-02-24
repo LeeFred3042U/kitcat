@@ -7,24 +7,21 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/storage"
+	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
-// Clean removes untracked files from the working directory.
-// When dryRun is true, files are only listed and not deleted.
-func Clean(dryRun bool) error {
-	// Load tracked files from index; used to prevent accidental deletion.
+// Clean removes untracked files and directories from the working directory.
+func Clean(dryRun, removeDirs, removeIgnored, onlyIgnored bool) error {
 	index, err := storage.LoadIndex()
 	if err != nil {
 		return fmt.Errorf("failed to load index: %w", err)
 	}
 
-	// Load ignore rules so ignored files are preserved.
 	patterns, err := LoadIgnorePatterns()
 	if err != nil {
 		return fmt.Errorf("failed to load ignore patterns: %w", err)
 	}
 
-	// ShouldIgnore expects a map[string]string; build a lightweight proxy.
 	proxyIndex := make(map[string]string, len(index))
 	for k := range index {
 		proxyIndex[k] = ""
@@ -32,44 +29,75 @@ func Clean(dryRun bool) error {
 
 	var toRemove []string
 
-	// Walk working directory to find candidates for cleanup.
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+		if err != nil || path == "." {
+			return nil
 		}
 
-		// Never descend into repository metadata directory.
-		if path == RepoDir || strings.HasPrefix(path, RepoDir+string(os.PathSeparator)) {
+		cleanPath := filepath.Clean(path)
+
+		// Never touch the repository metadata
+		if cleanPath == constant.RepoDir || strings.HasPrefix(cleanPath, constant.RepoDir+string(os.PathSeparator)) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		// Only consider files; directories are left intact.
-		if info.IsDir() {
-			return nil
+		isIgnored := ShouldIgnore(cleanPath, patterns, proxyIndex)
+
+		// Determine if we should process this file based on ignore flags
+		if isIgnored {
+			if !removeIgnored && !onlyIgnored {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		} else {
+			if onlyIgnored {
+				return nil
+			}
 		}
 
-		cleanPath := filepath.Clean(path)
+		if info.IsDir() {
+			if !removeDirs {
+				return nil // Don't remove, but keep walking inside
+			}
 
-		// Skip tracked files.
+			// Check if any tracked files exist inside this directory
+			prefix := cleanPath + "/"
+			hasTrackedFiles := false
+			for trackedPath := range index {
+				if strings.HasPrefix(trackedPath, prefix) {
+					hasTrackedFiles = true
+					break
+				}
+			}
+
+			if hasTrackedFiles {
+				return nil // It's a tracked directory, keep walking
+			}
+
+			// Untracked directory found!
+			if IsSafePath(cleanPath) {
+				toRemove = append(toRemove, cleanPath)
+			}
+			return filepath.SkipDir // Skip walking children, we'll delete the whole dir
+		}
+
+		// It's a file. Skip if tracked.
 		if _, tracked := index[cleanPath]; tracked {
 			return nil
 		}
 
-		// Skip ignored files.
-		if ShouldIgnore(cleanPath, patterns, proxyIndex) {
-			return nil
-		}
-
-		// Final safety guard before scheduling deletion.
 		if IsSafePath(cleanPath) {
 			toRemove = append(toRemove, cleanPath)
 		}
 
 		return nil
 	})
+
 	if err != nil {
 		return err
 	}
@@ -81,15 +109,13 @@ func Clean(dryRun bool) error {
 		return nil
 	}
 
-	// Perform deletion or dry-run output.
 	for _, file := range toRemove {
 		if dryRun {
 			fmt.Printf("Would remove %s\n", file)
 			continue
 		}
 
-		// Best-effort deletion; errors reported but do not abort entire operation.
-		if err := os.Remove(file); err != nil {
+		if err := os.RemoveAll(file); err != nil {
 			fmt.Printf("warning: failed to remove %s: %v\n", file, err)
 		} else {
 			fmt.Printf("Removing %s\n", file)

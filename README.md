@@ -1,45 +1,45 @@
-# kitkat
+# kitcat
 
 [![SWOC Season 6](https://img.shields.io/badge/SWOC-Season%206-blue?style=for-the-badge&logo=codeforces)](https://swoc.tech)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**kitkat** is a lightweight, learning-focused Git clone written in Go. It is designed to help developers understand the internal mechanics of version control by implementing core Git logic from scratch.
+**kitcat** is a lightweight, learning-focused Git clone written in Go. It is designed to help developers understand the internal mechanics of version control by implementing core Git logic from scratch.
 
 ---
 
 ## Quick Start (TL;DR)
 
-Get `kitkat` up and running on your local machine:
+Get `kitcat` up and running on your local machine:
 
 ### 1. Installation
 
 ```bash
 # Clone and build
 git clone [https://github.com/LeeFred3042U/kitcat.git](https://github.com/LeeFred3042U/kitcat.git)
-cd kitkat
-go build -o kitkat ./cmd/main.go
+cd kitcat
+go build -o kitcat ./cmd
 ```
 
 ### 2. First-Time Configuration
 
 ```
-./kitkat config --global user.name "Your Name"
-./kitkat config --global user.email "you@example.com"
+./kitcat config --global user.name "Your Name"
+./kitcat config --global user.email "you@example.com"
 ```
 
 ### 3. Basic Workflow
 
 ```
-./kitkat init
-./kitkat add <file>
-./kitkat commit -m "Initial commit"
+./kitcat init
+./kitcat add <file>
+./kitcat commit -m "Initial commit"
 ```
 
 ---
 
 ## How it Works (Internal Design)
 
-kitkat mimics the core principles of Git, operating on **snapshots** built from three key objects: **Blobs** (content), **Trees** (structure), and **Commits** (history).
+kitcat mimics the core principles of Git, operating on **snapshots** built from three key objects: **Blobs** (content), **Trees** (structure), and **Commits** (history).
 
 Instead of high-level abstractions, we encourage you to explore the internal architecture and command logic in our dedicated documentation:
 **[Read the Architecture Guide](./docs/ARCHITECTURE.md)**
@@ -48,10 +48,10 @@ Instead of high-level abstractions, we encourage you to explore the internal arc
 
 ## What’s Supported vs. What’s Not
 
-kitkat implements a functional subset of Git's "Plumbing" and "Porcelain" commands.
+kitcat implements a functional subset of Git's "Plumbing" and "Porcelain" commands.
 
 > [!IMPORTANT]
-> **A Note on Flags:** kitkat implements a **strict subset of Git flags**. For example, we support `commit -m` but **not** flags like `--author`, `--date`, or others. This restricted flag support applies to all commands across the project.
+> **A Note on Flags:** kitcat implements a **strict subset of Git flags**. For example, we support `commit -m` but **not** flags like `--author`, `--date`, or others. This restricted flag support applies to all commands across the project.
 
 | Feature            | Supported                 | Not Supported                           |
 | :----------------- | :------------------------ | :-------------------------------------- |
@@ -66,17 +66,17 @@ kitkat implements a functional subset of Git's "Plumbing" and "Porcelain" comman
 
 | Command    | Action                               | Usage Example                  |
 | :--------- | :----------------------------------- | :----------------------------- |
-| `init`     | Create a new `.kitkat` repository.   | `./kitkat init`                |
-| `add`      | Stage files to the index.            | `./kitkat add --all`           |
-| `commit`   | Record changes to the repository.    | `./kitkat commit -m "msg"`     |
-| `status`   | Show working directory state.        | `./kitkat status`              |
-| `diff`     | View colorized diff (Index vs HEAD). | `./kitkat diff`                |
-| `log`      | View commit history.                 | `./kitkat log --oneline`       |
-| `branch`   | List or create branches.             | `./kitkat branch feature`      |
-| `checkout` | Switch branches or restore files.    | `./kitkat checkout main`       |
-| `merge`    | Join histories (**FF-only**).        | `./kitkat merge feature`       |
-| `clean`    | Remove untracked files.              | `./kitkat clean -f`            |
-| `config`   | Set user name and email.             | `./kitkat config --global ...` |
+| `init`     | Create a new `.kitcat` repository.   | `./kitcat init`                |
+| `add`      | Stage files to the index.            | `./kitcat add --all`           |
+| `commit`   | Record changes to the repository.    | `./kitcat commit -m "msg"`     |
+| `status`   | Show working directory state.        | `./kitcat status`              |
+| `diff`     | View colorized diff (Index vs HEAD). | `./kitcat diff`                |
+| `log`      | View commit history.                 | `./kitcat log --oneline`       |
+| `branch`   | List or create branches.             | `./kitcat branch feature`      |
+| `checkout` | Switch branches or restore files.    | `./kitcat checkout main`       |
+| `merge`    | Join histories (**FF-only**).        | `./kitcat merge feature`       |
+| `clean`    | Remove untracked files.              | `./kitcat clean -f`            |
+| `config`   | Set user name and email.             | `./kitcat config --global ...` |
 
 ---
 
@@ -95,10 +95,10 @@ Create a `.kitignore` file in the root to exclude patterns:
 You can get detailed information for any command directly from the CLI:
 
 ```bash
-./kitkat help
-./kitkat help add
-./kitkat help commit
-./kitkat log
+./kitcat help
+./kitcat help add
+./kitcat help commit
+./kitcat log
 ```
 
 ---
@@ -112,7 +112,7 @@ Please read our **[CONTRIBUTING.md](./CONTRIBUTING.md)** for developer setup, co
 
 ## Reference Material
 
-To understand how kitkat maps to the original Git design philosophy, refer to the "OG" technical documentation:
+To understand how kitcat maps to the original Git design philosophy, refer to the "OG" technical documentation:
 
 - **[Git Technical Documentation](https://github.com/git/git/blob/master/Documentation/technical/index.txt)**
 - **[Git: The Information Manager from Hell](https://github.com/git/git/blob/master/Documentation/RelNotes/0.99.txt)**
@@ -120,4 +120,4 @@ To understand how kitkat maps to the original Git design philosophy, refer to th
 ---
 
 > [!CAUTION]
-> **Disclaimer:** kitkat is a toy project for educational purposes. Do not use it as your primary version control system for production work.
+> **Disclaimer:** kitcat is a toy project for educational purposes. Do not use it as your primary version control system for production work.

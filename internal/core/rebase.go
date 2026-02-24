@@ -1,29 +1,197 @@
 package core
 
 import (
-	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/merge"
 	"github.com/LeeFred3042U/kitcat/internal/models"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
+	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
-// RebaseAbort currently only reports state; no rebase metadata is tracked yet.
+// RebaseAbort cancels an active rebase, restores the original HEAD, 
+// and cleans up the sequencer state.
 func RebaseAbort() error {
-	fmt.Println("Rebase aborted")
+	if !IsRebaseInProgress() {
+		return fmt.Errorf("fatal: No rebase in progress")
+	}
+
+	state, err := LoadRebaseState()
+	if err != nil {
+		return fmt.Errorf("failed to read rebase state: %w", err)
+	}
+
+	fmt.Printf("Aborting rebase; restoring HEAD to %s\n", state.OrigHead[:7])
+	
+	if err := hardResetTo(state.OrigHead); err != nil {
+		return fmt.Errorf("failed to restore original HEAD: %w", err)
+	}
+
+	if err := ClearRebaseState(); err != nil {
+		return fmt.Errorf("failed to clear rebase state: %w", err)
+	}
+
 	return nil
 }
 
-// RebaseContinue is a placeholder until stateful rebase sequencing exists.
+// RebaseContinue reads the sequencer state and replays the next commits
+// using the 3-way merge engine. It handles pausing and resuming for conflicts.
 func RebaseContinue() error {
-	fmt.Println("Rebase continue not implemented")
-	return nil
+	if !IsRebaseInProgress() {
+		return fmt.Errorf("fatal: No rebase in progress")
+	}
+
+	state, err := LoadRebaseState()
+	if err != nil {
+		return fmt.Errorf("failed to read rebase state: %w", err)
+	}
+
+	// 1. PREFLIGHT: Check if we are resuming from a paused conflict
+	stoppedShaPath := filepath.Join(constant.RepoDir, "rebase-merge", "stopped-sha")
+	if stoppedHashBytes, err := os.ReadFile(stoppedShaPath); err == nil {
+		// We are resuming! Check if the user actually resolved the conflicts in the index.
+		index, _ := storage.LoadIndex()
+		for path, entry := range index {
+			if entry.Stage != 0 {
+				return fmt.Errorf("you still have unmerged files in '%s'.\nFix them, run 'kitcat add', and then 'kitcat rebase --continue'", path)
+			}
+		}
+
+		// Conflicts are resolved! Commit the paused step before continuing.
+		stoppedHash := strings.TrimSpace(string(stoppedHashBytes))
+		commitToApply, _ := storage.FindCommit(stoppedHash)
+		
+		if _, err := commitRebaseStep(commitToApply); err != nil {
+			return fmt.Errorf("failed to commit resolved rebase step: %w", err)
+		}
+
+		os.Remove(stoppedShaPath) // Clear the pause marker
+		state.CurrentStep++       // Move to the next step
+		SaveRebaseState(*state)
+	}
+
+	// 2. THE REPLAY ENGINE LOOP
+	for state.CurrentStep < len(state.TodoSteps) {
+		stepLine := strings.TrimSpace(state.TodoSteps[state.CurrentStep])
+		if stepLine == "" || strings.HasPrefix(stepLine, "#") {
+			state.CurrentStep++
+			continue
+		}
+
+		parts := strings.SplitN(stepLine, " ", 3)
+		if len(parts) < 2 {
+			return fmt.Errorf("invalid todo format: %s", stepLine)
+		}
+		action, hash := parts[0], parts[1]
+
+		if action != "pick" && action != "p" {
+			return fmt.Errorf("unsupported action '%s' (only 'pick' is currently supported)", action)
+		}
+
+		fmt.Printf("Rebasing (%d/%d): %s\n", state.CurrentStep+1, len(state.TodoSteps), stepLine)
+
+		commitToApply, err := storage.FindCommit(hash)
+		if err != nil {
+			return fmt.Errorf("failed to find commit %s: %w", hash, err)
+		}
+
+		// --- 3-WAY MERGE PREPARATION ---
+		baseTree := make(map[string]storage.TreeEntry)
+		if commitToApply.Parent != "" {
+			if baseCommit, err := storage.FindCommit(commitToApply.Parent); err == nil {
+				baseTree, _ = storage.ParseTree(baseCommit.TreeHash)
+			}
+		}
+
+		oursCommit, _ := storage.GetLastCommit()
+		oursTree, _ := storage.ParseTree(oursCommit.TreeHash)
+		theirsTree, _ := storage.ParseTree(commitToApply.TreeHash)
+
+		// --- CALCULATE & APPLY MERGE ---
+		plan := merge.MergeTrees(baseTree, oursTree, theirsTree)
+		if err := merge.ApplyMergePlan(plan); err != nil {
+			return fmt.Errorf("failed to apply rebase patch: %w", err)
+		}
+
+		// --- CONFLICT HANDLING ---
+		if len(plan.Conflicts) > 0 {
+			// Pause the sequencer by writing the stopped-sha
+			os.WriteFile(stoppedShaPath, []byte(hash), 0644)
+			
+			fmt.Println("CONFLICT (content): Merge conflict in files:")
+			for path := range plan.Conflicts {
+				fmt.Printf("  - %s\n", path)
+			}
+			return fmt.Errorf("could not apply %s.\nFix conflicts, run 'kitcat add', and then 'kitcat rebase --continue'", hash[:7])
+		}
+
+		// --- CLEAN APPLY: COMMIT IMMEDIATELY ---
+		if _, err := commitRebaseStep(commitToApply); err != nil {
+			return fmt.Errorf("failed to commit %s: %w", hash, err)
+		}
+
+		state.CurrentStep++
+		SaveRebaseState(*state)
+	}
+
+	// 3. REBASE COMPLETE! CLEANUP
+	branchRef := strings.TrimPrefix(state.HeadName, "refs/heads/")
+	// Matches canonical git output
+	fmt.Printf("Successfully rebased and updated refs/heads/%s.\n", branchRef)
+	return ClearRebaseState()
+}
+
+// commitRebaseStep replicates a commit during a rebase.
+// It bypasses the standard Commit function to preserve the original Author
+// and ensure single-parent ancestry (no accidental merge commits!).
+func commitRebaseStep(original models.Commit) (string, error) {
+	treeHash, err := plumbing.WriteTree(storage.IndexPath)
+	if err != nil {
+		return "", err
+	}
+
+	headCommit, err := storage.GetLastCommit()
+	var parents []string
+	if err == nil {
+		parents = append(parents, headCommit.ID)
+	}
+
+	// Preserve the original author (The person who wrote the code)
+	authorStr := fmt.Sprintf("%s <%s>", original.AuthorName, original.AuthorEmail)
+
+	// Update the committer to the current user (The person running the rebase)
+	name, _, _ := GetConfig("user.name")
+	email, _, _ := GetConfig("user.email")
+	if name == "" { name = "Unknown" }
+	if email == "" { email = "unknown@example.com" }
+	committerStr := fmt.Sprintf("%s <%s>", name, email)
+
+	opts := plumbing.CommitOptions{
+		Tree:      treeHash,
+		Parents:   parents,
+		Author:    authorStr,
+		Committer: committerStr,
+		Message:   original.Message,
+	}
+
+	newCommitHash, err := plumbing.CommitTree(opts)
+	if err != nil {
+		return "", err
+	}
+
+	// Safely update HEAD pointer using your existing unexported function in commit.go
+	if err := updateHead(newCommitHash); err != nil {
+		return "", err
+	}
+
+	return newCommitHash, nil
 }
 
 // GetCurrentBranch resolves HEAD and returns the active branch name.
-// Fails when repository is in detached HEAD state.
 func GetCurrentBranch() (string, error) {
 	head, err := os.ReadFile(".kitcat/HEAD")
 	if err != nil {
@@ -36,11 +204,19 @@ func GetCurrentBranch() (string, error) {
 	return "", fmt.Errorf("detached HEAD")
 }
 
-// Rebase rewrites commit history by replaying commits after the merge base
-// onto a new target branch. This implementation replaces trees directly
-// rather than applying diffs, which may overwrite local changes.
+// Rebase initializes the sequencer. It calculates the commits to replay,
+// saves them to the todo list, resets the working directory to the target base,
+// and then kicks off RebaseContinue.
 func Rebase(targetBranch string, interactive bool) error {
-	// Resolve current branch and HEAD.
+	if IsRebaseInProgress() {
+		return fmt.Errorf("fatal: A rebase is already in progress. Use --continue or --abort")
+	}
+
+	dirty, _ := IsWorkDirDirty()
+	if dirty {
+		return fmt.Errorf("fatal: cannot rebase: you have unstaged changes.\nPlease commit or stash them")
+	}
+
 	currentBranch, err := GetCurrentBranch()
 	if err != nil {
 		return fmt.Errorf("failed to get current branch: %w", err)
@@ -51,21 +227,17 @@ func Rebase(targetBranch string, interactive bool) error {
 		return fmt.Errorf("failed to get HEAD commit: %w", err)
 	}
 
-	// Resolve target branch reference.
 	targetHash, err := storage.GetRef("refs/heads/" + targetBranch)
 	if err != nil {
-		return err
+		return fmt.Errorf("fatal: invalid branch '%s'", targetBranch)
 	}
 
-	// Determine merge base to identify commits needing replay.
 	mergeBase, err := storage.FindMergeBase(headCommit.ID, targetHash)
 	if err != nil {
 		return fmt.Errorf("failed to find merge base: %w", err)
 	}
 
-	fmt.Printf("Rebasing %s onto %s (base: %s)\n", currentBranch, targetBranch, mergeBase[:7])
-
-	// Collect commits between merge base and HEAD.
+	// 1. Collect commits from HEAD down to mergeBase
 	var commitsToRebase []models.Commit
 	curr := headCommit.ID
 	for curr != mergeBase && curr != "" {
@@ -73,7 +245,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		if err != nil {
 			return err
 		}
-		// Prepend because traversal walks history backwards.
+		// Prepend to array because we traverse backwards, but need to replay forwards!
 		commitsToRebase = append([]models.Commit{c}, commitsToRebase...)
 		curr = c.Parent
 	}
@@ -83,40 +255,49 @@ func Rebase(targetBranch string, interactive bool) error {
 		return nil
 	}
 
-	// Interactive step allows dropping commits before replay.
+	// 2. Generate the Git-standard "todo" list
+	var todoSteps []string
+	for _, c := range commitsToRebase {
+		// Format: action hash message
+		step := fmt.Sprintf("pick %s %s", c.ID, c.Message)
+		todoSteps = append(todoSteps, step)
+	}
+
+	// 3. Interactive prompt (Allows modifying the todoSteps array)
 	if interactive {
-		commitsToRebase, err = promptInteractiveRebase(commitsToRebase)
+		todoSteps, err = promptInteractiveRebase(todoSteps)
 		if err != nil {
 			return fmt.Errorf("rebase aborted: %w", err)
 		}
+		if len(todoSteps) == 0 {
+			fmt.Println("Successfully rebased and updated (nothing to do).")
+			return nil
+		}
 	}
 
-	// Reset working state to target branch before replaying commits.
+	fmt.Printf("Rebasing %s onto %s...\n", currentBranch, targetBranch)
+
+	// 4. Save the sequencer state to disk
+	state := RebaseState{
+		HeadName:    "refs/heads/" + currentBranch,
+		Onto:        targetHash,
+		OrigHead:    headCommit.ID,
+		TodoSteps:   todoSteps,
+		CurrentStep: 0,
+		Message:     "",
+	}
+	
+	if err := SaveRebaseState(state); err != nil {
+		return fmt.Errorf("failed to initialize rebase state: %w", err)
+	}
+
+	// 5. Checkout the target branch (the "onto" base)
 	if err := hardResetTo(targetHash); err != nil {
-		return err
+		return fmt.Errorf("failed to checkout base commit: %w", err)
 	}
 
-	for _, commit := range commitsToRebase {
-		fmt.Printf("Picking %s %s\n", commit.ID[:7], commit.Message)
-
-		// Instead of applying diffs, replace index/workdir with commit tree.
-		// This is simpler but can overwrite unrelated local changes.
-		if err := cherryPickTree(commit.TreeHash); err != nil {
-			return err
-		}
-
-		// New commit uses current HEAD as parent, creating rewritten history.
-		hash, err := Commit(commit.Message)
-		if err != nil {
-			return fmt.Errorf("failed to commit %s during rebase: %w", commit.ID[:7], err)
-		}
-
-		fmt.Printf("Re-applied as %s\n", hash[:7])
-	}
-
-	// Final hard reset ensures workspace matches resulting HEAD state.
-	fmt.Println("Rebase completed successfully.")
-	return hardResetTo(targetHash)
+	// 6. Start the replay engine
+	return RebaseContinue()
 }
 
 // hardResetTo updates branch pointer then forces index and working tree
@@ -124,77 +305,55 @@ func Rebase(targetBranch string, interactive bool) error {
 func hardResetTo(hash string) error {
 	currentBranch, _ := GetCurrentBranch()
 	refPath := ".kitcat/refs/heads/" + currentBranch
-	if err := os.WriteFile(refPath, []byte(hash), 0644); err != nil {
+	
+	// Atomic write
+	if err := SafeWrite(refPath, []byte(hash), 0644); err != nil {
 		return err
 	}
 	return Reset(hash, ResetHard)
 }
 
-// promptInteractiveRebase allows dropping commits via simple CLI input.
-// Ordering is preserved; no reordering/edit support exists yet.
-func promptInteractiveRebase(commits []models.Commit) ([]models.Commit, error) {
-	fmt.Println("\nCommits to rebase:")
-	for i, c := range commits {
-		fmt.Printf("%d: %s %s\n", i+1, c.ID[:7], c.Message)
-	}
-	fmt.Println("\nTo drop a commit, enter its number (comma separated). Enter to proceed.")
-	fmt.Print("> ")
-
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-
-	if input == "" {
-		return commits, nil
+// promptInteractiveRebase opens the todo list in the user's default editor,
+// just like git rebase -i. The user can remove lines or change actions to 'drop'.
+func promptInteractiveRebase(steps []string) ([]string, error) {
+	var sb strings.Builder
+	for _, step := range steps {
+		sb.WriteString(step + "\n")
 	}
 
-	dropIndices := make(map[int]bool)
-	parts := strings.Split(input, ",")
-	for _, p := range parts {
-		var idx int
-		if _, err := fmt.Sscanf(strings.TrimSpace(p), "%d", &idx); err == nil {
-			if idx > 0 && idx <= len(commits) {
-				dropIndices[idx-1] = true
-			}
-		}
-	}
+	sb.WriteString("\n# Rebase interactive commands:\n")
+	sb.WriteString("# p, pick <commit> = use commit\n")
+	sb.WriteString("# d, drop <commit> = remove commit\n")
+	sb.WriteString("#\n# These lines can be re-ordered; they are executed from top to bottom.\n")
+	sb.WriteString("# If you remove a line here THAT COMMIT WILL BE LOST.\n")
 
-	var kept []models.Commit
-	for i, c := range commits {
-		if !dropIndices[i] {
-			kept = append(kept, c)
-		}
-	}
-
-	// Returning nil commits indicates user aborted flow intentionally.
-	return nil, nil
-}
-
-// cherryPickTree replaces index contents with a tree snapshot and updates
-// working directory files to match it.
-func cherryPickTree(treeHash string) error {
-	treeMap, err := storage.ParseTree(treeHash)
+	// Trigger the editor!
+	editedData, err := CaptureViaEditor("git-rebase-todo", sb.String())
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("interactive rebase aborted: %w", err)
 	}
 
-	if err := storage.WriteIndexFromTree(treeMap); err != nil {
-		return err
+	if strings.TrimSpace(editedData) == "" {
+		return nil, fmt.Errorf("aborting rebase due to empty todo list")
 	}
 
-	// Apply index state to disk by restoring files from object storage.
-	return checkoutIndexFromMap(treeMap)
-}
+	var kept []string
+	for _, line := range strings.Split(editedData, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
 
-// checkoutIndexFromMap writes tree contents directly into the working
-// directory. Existing files may be overwritten.
-func checkoutIndexFromMap(tree map[string]string) error {
-	for path, hash := range tree {
-		content, err := storage.ReadObject(hash)
-		if err != nil { return err }
-		if err := os.WriteFile(path, content, 0644); err != nil {
-			return err
+		parts := strings.Fields(line)
+		if len(parts) > 0 {
+			action := parts[0]
+			// Handle 'drop' natively
+			if action == "drop" || action == "d" {
+				continue
+			}
+			kept = append(kept, line)
 		}
 	}
-	return nil
+
+	return kept, nil
 }

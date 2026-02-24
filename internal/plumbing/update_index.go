@@ -35,9 +35,15 @@ func UpdateIndex(entries []IndexEntry, indexPath string) error {
 	var buf bytes.Buffer
 
 	// Write index header: signature, version, and entry count.
-	if _, err := buf.Write([]byte("DIRC")); err != nil { return err }
-	if err := binary.Write(&buf, binary.BigEndian, uint32(2)); err != nil { return err }
-	if err := binary.Write(&buf, binary.BigEndian, uint32(len(entries))); err != nil { return err }
+	if _, err := buf.Write([]byte("DIRC")); err != nil {
+		return err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(2)); err != nil {
+		return err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, uint32(len(entries))); err != nil {
+		return err
+	}
 
 	// Entries must be written sequentially so checksum reflects exact byte layout.
 	for _, e := range entries {
@@ -48,7 +54,9 @@ func UpdateIndex(entries []IndexEntry, indexPath string) error {
 
 	// Git index checksum is SHA-1 over all prior bytes.
 	sum := sha1.Sum(buf.Bytes())
-	if _, err := buf.Write(sum[:]); err != nil { return err }
+	if _, err := buf.Write(sum[:]); err != nil {
+		return err
+	}
 
 	// Final write replaces index file atomically at filesystem level.
 	return os.WriteFile(indexPath, buf.Bytes(), 0644)
@@ -56,18 +64,40 @@ func UpdateIndex(entries []IndexEntry, indexPath string) error {
 
 func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	// Fixed-size stat metadata is encoded in big-endian to match Git’s binary format.
-	if err := binary.Write(buf, binary.BigEndian, e.CTimeSec); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.CTimeNSec); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.MTimeSec); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.MTimeNSec); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.Dev); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.Ino); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.Mode); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.UID); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.GID); err != nil { return err }
-	if err := binary.Write(buf, binary.BigEndian, e.Size); err != nil { return err }
-	
-	if _, err := buf.Write(e.Hash[:]); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, e.CTimeSec); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.CTimeNSec); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.MTimeSec); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.MTimeNSec); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.Dev); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.Ino); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.Mode); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.UID); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.GID); err != nil {
+		return err
+	}
+	if err := binary.Write(buf, binary.BigEndian, e.Size); err != nil {
+		return err
+	}
+
+	if _, err := buf.Write(e.Hash[:]); err != nil {
+		return err
+	}
 
 	// Path length field is limited to 12 bits in index v2; values beyond
 	// this are capped while the full path string is still written.
@@ -75,17 +105,25 @@ func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	if nameLen > 0xFFF {
 		nameLen = 0xFFF
 	}
-	if err := binary.Write(buf, binary.BigEndian, uint16(nameLen)); err != nil { return err }
+	if err := binary.Write(buf, binary.BigEndian, uint16(nameLen)); err != nil {
+		return err
+	}
 
-	if _, err := buf.WriteString(e.Path); err != nil { return err }
-	if err := buf.WriteByte(0); err != nil { return err } // Null terminator
+	if _, err := buf.WriteString(e.Path); err != nil {
+		return err
+	}
+	if err := buf.WriteByte(0); err != nil {
+		return err
+	} // Null terminator
 
 	// Entries are padded with null bytes so total size aligns to 8-byte boundaries,
 	// which is required for Git index parsing.
 	entrySize := 62 + len(e.Path) + 1
 	pad := 8 - (entrySize % 8)
 	for i := 0; i < pad; i++ {
-		if err := buf.WriteByte(0); err != nil { return err }
+		if err := buf.WriteByte(0); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -16,7 +16,7 @@ func TestMoveFile(t *testing.T) {
 	defer os.Chdir(cwd)
 
 	// Create temp directory
-	tmpDir := t.TempDir()
+tmpDir := t.TempDir()
 
 	// Change working directory into temp repo
 	if err := os.Chdir(tmpDir); err != nil {
@@ -57,7 +57,7 @@ func TestMoveFile(t *testing.T) {
 	}
 
 	// Index should contain new file
-	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitkat", "index"))
+	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitcat", "index"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestMoveFile(t *testing.T) {
 func TestMoveFile_DestinationExists(t *testing.T) {
 	tmpDir := t.TempDir()
 	cwd, _ := os.Getwd() // assuming no error in test setup
-	
+
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		_ = os.Chdir(cwd) // Ignore error in cleanup
 	}()
-	
+
 	if err := Init(); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestMoveFile_DestinationExists(t *testing.T) {
 	}
 
 	// Index should contain the destination file
-	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitkat", "index"))
+	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitcat", "index"))
 	if err != nil {
 		t.Fatal(err)
 	}

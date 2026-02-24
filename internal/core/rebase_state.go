@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	
+	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
 // RebaseState holds the on-disk representation of a rebase in progress.
-// Fields map directly to files under <repo>/.kitkat/rebase-merge.
+// Fields map directly to files under <repo>/.kitcat/rebase-merge.
 type RebaseState struct {
 	HeadName    string   // "refs/heads/main" or empty if detached
 	Onto        string   // Commit ID base
@@ -21,43 +23,55 @@ type RebaseState struct {
 
 // EnsureRebaseDir creates the rebase-merge directory if it does not exist.
 func EnsureRebaseDir() error {
-	path := filepath.Join(RepoDir, "rebase-merge")
+	path := filepath.Join(constant.RepoDir, "rebase-merge")
 	return os.MkdirAll(path, 0755)
 }
 
-// SaveRebaseState persists the RebaseState into files under .kitkat/rebase-merge.
+// SaveRebaseState persists the RebaseState into files under .kitcat/rebase-merge.
 // Writes are simple text files; failures return immediately.
 func SaveRebaseState(state RebaseState) error {
 	if err := EnsureRebaseDir(); err != nil {
 		return err
 	}
-	base := filepath.Join(RepoDir, "rebase-merge")
+	base := filepath.Join(constant.RepoDir, "rebase-merge")
 
 	// Helper to write files and check errors immediately.
 	write := func(filename, content string) error {
 		return os.WriteFile(filepath.Join(base, filename), []byte(content), 0644)
 	}
 
-	if err := write("head-name", state.HeadName); err != nil { return err }
-	if err := write("onto", state.Onto); err != nil { return err }
-	if err := write("orig-head", state.OrigHead); err != nil { return err }
+	if err := write("head-name", state.HeadName); err != nil {
+		return err
+	}
+	if err := write("onto", state.Onto); err != nil {
+		return err
+	}
+	if err := write("orig-head", state.OrigHead); err != nil {
+		return err
+	}
 
 	// The todo file stores one command per line.
-	if err := write("git-rebase-todo", strings.Join(state.TodoSteps, "\n")); err != nil { return err }
+	if err := write("git-rebase-todo", strings.Join(state.TodoSteps, "\n")); err != nil {
+		return err
+	}
 
 	// msgnum is stored 1-based on-disk; CurrentStep is 0-based in memory.
-	if err := write("msgnum", fmt.Sprintf("%d", state.CurrentStep+1)); err != nil { return err }
+	if err := write("msgnum", fmt.Sprintf("%d", state.CurrentStep+1)); err != nil {
+		return err
+	}
 
 	// message accumulates commit messages for squash/reword operations.
-	if err := write("message", state.Message); err != nil { return err }
+	if err := write("message", state.Message); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-// LoadRebaseState reconstructs RebaseState from files under .kitkat/rebase-merge.
+// LoadRebaseState reconstructs RebaseState from files under .kitcat/rebase-merge.
 // Missing directory yields an error indicating no rebase is in progress.
 func LoadRebaseState() (*RebaseState, error) {
-	base := filepath.Join(RepoDir, "rebase-merge")
+	base := filepath.Join(constant.RepoDir, "rebase-merge")
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no rebase in progress")
 	}
@@ -93,13 +107,13 @@ func LoadRebaseState() (*RebaseState, error) {
 
 // IsRebaseInProgress returns true if the rebase-merge directory exists.
 func IsRebaseInProgress() bool {
-	_, err := os.Stat(filepath.Join(RepoDir, "rebase-merge"))
+	_, err := os.Stat(filepath.Join(constant.RepoDir, "rebase-merge"))
 	return err == nil
 }
 
 // ClearRebaseState removes the rebase-merge directory and all its files.
 func ClearRebaseState() error {
-	return os.RemoveAll(filepath.Join(RepoDir, "rebase-merge"))
+	return os.RemoveAll(filepath.Join(constant.RepoDir, "rebase-merge"))
 }
 
 // ReadNextTodo returns the next todo command and the loaded state.

@@ -10,7 +10,7 @@ func TestIndexWriteSanity(t *testing.T) {
 	// Setup isolated environment
 	tmpDir := t.TempDir()
 
-	// Switch CWD to temp dir because WriteIndex writes to ".kitkat/index" relative path
+	// Switch CWD to temp dir because WriteIndex writes to ".kitcat/index" relative path
 	originalWd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestIndexWriteSanity(t *testing.T) {
 	}
 
 	// Assertions
-	targetPath := ".kitkat/index"
+	targetPath := ".kitcat/index"
 
 	// Assert file exists
 	content, err := os.ReadFile(targetPath)

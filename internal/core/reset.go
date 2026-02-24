@@ -2,6 +2,9 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
@@ -12,42 +15,137 @@ const (
 	ResetHard  = 2
 )
 
-// Reset moves HEAD to the specified commit and conditionally updates
-// index and working directory depending on reset mode semantics.
+// Reset implements the porcelain Git reset behavior using separated plumbing layers.
 func Reset(commitStr string, mode int) error {
-	// Resolve target commit first to ensure HEAD is not moved to an invalid state.
-	commit, err := storage.FindCommit(commitStr)
+	// 1. Resolve Reference
+	if commitStr == "" || commitStr == "HEAD" {
+		hash, err := ResolveHead()
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD: %w", err)
+		}
+		commitStr = hash
+	} else {
+		branchPath := filepath.Join(".kitcat", "refs", "heads", commitStr)
+		if b, err := os.ReadFile(branchPath); err == nil {
+			commitStr = strings.TrimSpace(string(b))
+		}
+	}
+
+	commitObj, err := storage.FindCommit(commitStr)
 	if err != nil {
 		return fmt.Errorf("invalid commit %s: %w", commitStr, err)
 	}
 
-	// Update HEAD or branch ref before mutating index/worktree to match Git behavior.
-	if err := UpdateBranchPointer(commit.ID); err != nil {
+	// 2. Destructive Workspace Rewrite (checkout-index layer)
+	if mode == ResetHard {
+		if err := CheckoutTree(commitObj.TreeHash); err != nil {
+			return fmt.Errorf("checkout failed: %w", err)
+		}
+	}
+
+	// 3. Index Rewrite (read-tree layer)
+	if mode == ResetMixed || mode == ResetHard {
+		if err := ReadTree(commitObj.TreeHash); err != nil {
+			return fmt.Errorf("read-tree failed: %w", err)
+		}
+	}
+
+	// INVARIANT: HEAD is updated ONLY after the index and working tree 
+	// successfully reflect the target commit. Do not reorder this!
+	actionMsg := fmt.Sprintf("reset: moving to %s", commitStr)
+	if err := UpdateRef(commitObj.ID, actionMsg); err != nil {
+		return fmt.Errorf("update-ref failed: %w", err)
+	}
+
+	return nil
+}
+
+// ReadTree reads a tree object into the index map and persists it.
+func ReadTree(treeHash string) error {
+	tree, err := storage.ParseTree(treeHash)
+	if err != nil {
 		return err
 	}
+	return storage.WriteIndexFromTree(tree)
+}
 
-	// --soft: only move HEAD; index and working tree remain unchanged.
-	if mode == ResetSoft {
-		return nil
-	}
-
-	// Load tree snapshot from target commit; used to rebuild index state.
-	tree, err := storage.ParseTree(commit.TreeHash)
+// CheckoutTree compares the workspace vs the target tree and aligns them.
+// NOTE: Workspace updates are currently NOT transactional. Partial file 
+// updates may remain on disk if an error occurs mid-operation.
+func CheckoutTree(treeHash string) error {
+	targetTree, err := storage.ParseTree(treeHash)
 	if err != nil {
 		return err
 	}
 
-	// Replacing the index aligns staged state with the target commit.
-	if err := storage.WriteIndexFromTree(tree); err != nil {
-		return err
+	currentIndex, _ := storage.LoadIndex()
+
+	for path := range currentIndex {
+		if _, exists := targetTree[path]; !exists {
+			os.Remove(path)
+		}
 	}
 
-	// --mixed: HEAD + index updated; working directory left untouched.
-	if mode == ResetMixed {
-		return nil
+	for path, entry := range targetTree {
+		content, err := storage.ReadObject(entry.Hash)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		perm := os.FileMode(0644)
+		var modeVal uint32
+		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
+			if (modeVal & 0111) != 0 {
+				perm = 0755
+			}
+		}
+
+		if err := os.WriteFile(path, content, perm); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UpdateRef safely updates HEAD/branch pointers and creates reflog entries.
+func UpdateRef(newCommit string, actionMsg string) error {
+	headPath := filepath.Join(".kitcat", "HEAD")
+	headData, err := os.ReadFile(headPath)
+	if err != nil {
+		return fmt.Errorf("unable to read HEAD: %w", err)
+	}
+	
+	ref := strings.TrimSpace(string(headData))
+	var oldCommit string
+	var targetRefPath string
+
+	if strings.HasPrefix(ref, "ref: ") {
+		targetRefPath = strings.TrimPrefix(ref, "ref: ")
+		branchFile := filepath.Join(".kitcat", targetRefPath)
+
+		if b, err := os.ReadFile(branchFile); err == nil {
+			oldCommit = strings.TrimSpace(string(b))
+		}
+
+		// Write to reflog BEFORE the atomic ref update for crash recovery
+		_ = ReflogAppend(targetRefPath, oldCommit, newCommit, actionMsg)
+
+		if err := SafeWrite(branchFile, []byte(newCommit), 0644); err != nil {
+			return fmt.Errorf("failed to update branch ref: %w", err)
+		}
+		
+	} else {
+		oldCommit = ref
+		
+		if err := SafeWrite(headPath, []byte(newCommit), 0644); err != nil {
+			return fmt.Errorf("failed to update detached HEAD: %w", err)
+		}
 	}
 
-	// --hard: destructive sync of working directory with commit tree.
-	// Files absent from the commit may be deleted.
-	return UpdateWorkspaceAndIndex(commit.ID)
+	// Always write HEAD reflog last
+	_ = ReflogAppend("HEAD", oldCommit, newCommit, actionMsg)
+	return nil
 }

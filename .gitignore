@@ -35,8 +35,11 @@ kitkat_project_code.txt
 kitkat
 
 .kitkat
-
+kitcat_bin
 dump.sh
 
 # exception
 !.ci/run_kitkat.sh
+kitcat
+dump.sh
+verify

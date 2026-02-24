@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -10,9 +11,9 @@ import (
 
 // RemoveFile deletes a path from the working directory and removes
 // the corresponding entry from the index. Directory removal requires
-// the recursive flag to avoid accidental destructive operations.
-func RemoveFile(path string, recursive bool) error {
-	// Prevent directory deletion unless explicitly requested.
+// the recursive flag. If cached is true, the file is only removed
+// from the index, leaving the working directory intact.
+func RemoveFile(path string, recursive, cached bool) error {
 	if !recursive {
 		info, err := os.Stat(path)
 		if err == nil && info.IsDir() {
@@ -20,14 +21,21 @@ func RemoveFile(path string, recursive bool) error {
 		}
 	}
 
-	// RemoveAll is intentionally destructive and will delete nested contents.
-	if err := os.RemoveAll(path); err != nil {
-		return err
+	// If not just cached, physically remove the file/directory from disk
+	if !cached {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
 	}
 
-	// Update index transactionally to keep staging area consistent with disk state.
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
-		delete(index, path)
+		// Ensure descendant paths are removed by matching the directory prefix
+		prefix := path + "/"
+		for k := range index {
+			if k == path || strings.HasPrefix(k, prefix) {
+				delete(index, k)
+			}
+		}
 		return nil
 	})
 }

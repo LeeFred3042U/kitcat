@@ -35,7 +35,7 @@ func MoveFile(src, dst string, force bool) error {
 		}
 	}
 
-	//  Filesystem move 
+	//  Filesystem move
 	if err := os.Rename(src, dst); err != nil {
 		// Cross-device rename fallback (git does this internally)
 		if err := copyRecursive(src, dst); err != nil {
@@ -46,7 +46,7 @@ func MoveFile(src, dst string, force bool) error {
 		}
 	}
 
-	//  Update Index 
+	//  Update Index
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 
 		// File move

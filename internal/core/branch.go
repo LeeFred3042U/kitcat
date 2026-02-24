@@ -89,7 +89,11 @@ func CreateBranch(name string) error {
 	}
 
 	branchPath := filepath.Join(headsDir, name)
-	return os.WriteFile(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
+	err = SafeWrite(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
+	if err == nil {
+		ReflogAppend("refs/heads/"+name, "", commitHash, "branch: Created from HEAD")
+	}
+	return err
 }
 
 // IsBranch returns true if a branch reference file exists.
@@ -161,15 +165,20 @@ func RenameCurrentBranch(newName string) error {
 		return err
 	}
 
-	// Create new ref before modifying HEAD to avoid losing reference on failure.
-	if err := os.WriteFile(newRef, commitHash, 0o644); err != nil {
+	// Create new ref atomically before modifying HEAD
+	if err := SafeWrite(newRef, commitHash, 0o644); err != nil {
 		return err
 	}
 
 	newHeadContent := []byte(refPrefix + newName + "\n")
-	if err := os.WriteFile(headPath, newHeadContent, 0o644); err != nil {
+	if err := SafeWrite(headPath, newHeadContent, 0o644); err != nil {
 		return err
 	}
+
+	// Reflogs for rename
+	hashStr := strings.TrimSpace(string(commitHash))
+	ReflogAppend("refs/heads/"+newName, "", hashStr, "branch: renamed from "+oldName)
+	ReflogAppend("HEAD", hashStr, hashStr, "checkout: moving from "+oldName+" to "+newName)
 
 	return os.Remove(oldRef)
 }

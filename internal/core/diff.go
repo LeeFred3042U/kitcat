@@ -29,7 +29,7 @@ func Diff(staged bool) error {
 	}
 
 	// 2. Load HEAD Commit Tree (if exists)
-	var headTree map[string]string
+	var headTree map[string]storage.TreeEntry // UPDATED TYPE
 	lastCommit, err := storage.GetLastCommit()
 	if err == nil {
 		headTree, err = storage.ParseTree(lastCommit.TreeHash)
@@ -40,15 +40,15 @@ func Diff(staged bool) error {
 		return err
 	} else {
 		// No commits yet (empty HEAD)
-		headTree = make(map[string]string)
+		headTree = make(map[string]storage.TreeEntry) // UPDATED TYPE
 	}
 
 	if staged {
 		// --- Staged Diff: Compare HEAD (old) vs Index (new) ---
-
+		
 		for path, entry := range index {
 			indexHashHex := hex.EncodeToString(entry.Hash[:])
-			headHash, inHead := headTree[path]
+			headEntry, inHead := headTree[path]
 
 			if !inHead {
 				// Added in Index
@@ -58,20 +58,21 @@ func Diff(staged bool) error {
 				continue
 			}
 
-			if indexHashHex != headHash {
+			// Extract Hash from the TreeEntry struct
+			if indexHashHex != headEntry.Hash {
 				// Modified in Index
 				fmt.Printf("%sModified: %s%s\n", colorBlue, path, colorReset)
-				oldContent, _ := storage.ReadObject(headHash)
+				oldContent, _ := storage.ReadObject(headEntry.Hash)
 				newContent, _ := storage.ReadObject(indexHashHex)
 				printLineDiff(string(oldContent), string(newContent))
 			}
 		}
 
 		// Deleted in Index (present in HEAD, missing in Index)
-		for path, headHash := range headTree {
+		for path, headEntry := range headTree {
 			if _, inIndex := index[path]; !inIndex {
 				fmt.Printf("%sDeleted: %s%s\n", colorRed, path, colorReset)
-				oldContent, _ := storage.ReadObject(headHash)
+				oldContent, _ := storage.ReadObject(headEntry.Hash)
 				printLineDiff(string(oldContent), "")
 			}
 		}
@@ -124,23 +125,18 @@ func printLineDiff(old, new string) {
 		newLines = strings.Split(strings.TrimRight(new, "\n"), "\n")
 	}
 
-	d := diff.NewMyersDiff(oldLines, newLines)
-
-	for _, c := range d.Diffs() {
+	// Use the optimized DiffLines function which handles hashing
+	diffs := diff.DiffLines(oldLines, newLines)
+	
+	for _, c := range diffs {
 		lines := c.Text
 		switch c.Operation {
 		case diff.INSERT:
-			for _, l := range lines {
-				fmt.Printf("%s+ %s%s\n", colorGreen, l, colorReset)
-			}
+			for _, l := range lines { fmt.Printf("%s+ %s%s\n", colorGreen, l, colorReset) }
 		case diff.DELETE:
-			for _, l := range lines {
-				fmt.Printf("%s- %s%s\n", colorRed, l, colorReset)
-			}
+			for _, l := range lines { fmt.Printf("%s- %s%s\n", colorRed, l, colorReset) }
 		case diff.EQUAL:
-			for _, l := range lines {
-				fmt.Printf("  %s\n", l)
-			}
+			for _, l := range lines { fmt.Printf("  %s\n", l) }
 		}
 	}
 }

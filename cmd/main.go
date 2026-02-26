@@ -498,12 +498,26 @@ var commands = map[string]CommandFunc{
 			os.Exit(0)
 		}
 
-		if len(args) < 2 {
-			fmt.Println("Usage: kitcat tag <tag-name> <commit-id>")
+		if len(args) < 1 {
+			fmt.Println("Usage: kitcat tag <tag-name> [commit-id]")
 			os.Exit(2)
 		}
 
-		if err := core.CreateTag(args[0], args[1]); err != nil {
+		tagName := args[0]
+		commitID := ""
+
+		if len(args) >= 2 {
+			commitID = args[1]
+		} else {
+			headCommit, err := core.GetHeadCommit()
+			if err != nil {
+				fmt.Println("Error:", err)
+				os.Exit(1)
+			}
+			commitID = headCommit.ID
+		}
+
+		if err := core.CreateTag(tagName, commitID); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
 		}

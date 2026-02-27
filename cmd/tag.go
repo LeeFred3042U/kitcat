@@ -1,24 +1,37 @@
 package main
 
 import (
+	"flag"
+	"os"
+
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
 func handleTag(args []string) {
-	if len(args) == 0 {
+	fs := flag.NewFlagSet("tag", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	annotated := fs.Bool("a", false, "Make an unsigned, annotated tag object")
+	message := fs.String("m", "", "Tag message")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(exitUsage)
+	}
+
+	if fs.NArg() == 0 {
 		if err := core.PrintTags(); err != nil {
 			die("%v", err)
 		}
 		return
 	}
 
-	tagName := args[0]
+	tagName := fs.Arg(0)
 	commit := "HEAD"
-	if len(args) > 1 {
-		commit = args[1]
+	if fs.NArg() > 1 {
+		commit = fs.Arg(1)
 	}
 
-	// Architectural fix: Use core.ResolveHead
+	// Resolve "HEAD" to the actual commit hash
 	if commit == "HEAD" {
 		headHash, err := core.ResolveHead()
 		if err != nil {
@@ -30,7 +43,19 @@ func handleTag(args []string) {
 		commit = headHash
 	}
 
-	if err := core.CreateTag(tagName, commit); err != nil {
-		die("%v", err)
+	// Route based on the -a flag
+	if *annotated {
+		msg := *message
+		if msg == "" {
+			// If no message provided, use a default (or we could open an editor here)
+			msg = "Annotated tag " + tagName
+		}
+		if err := core.CreateAnnotatedTag(tagName, commit, msg); err != nil {
+			die("%v", err)
+		}
+	} else {
+		if err := core.CreateTag(tagName, commit); err != nil {
+			die("%v", err)
+		}
 	}
 }

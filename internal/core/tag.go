@@ -4,88 +4,98 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"time"
+
+	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
-const tagsDir = ".kitcat/refs/tags"
-
-// CreateTag creates a lightweight tag by writing a file that points
-// directly to a commit hash. Fails if repository is not initialized
-// or if the tag name already exists.
-func CreateTag(tagName, commitID string) error {
-	// Ensure commands operate only inside a valid repository root.
-	if !IsRepoInitialized() {
-		return fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitcat")
+// PrintTags lists all tags in the repository.
+func PrintTags() error {
+	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
+		return fmt.Errorf("not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
 	}
 
-	// Tags directory is created lazily to mirror Git ref layout behavior.
-	if err := os.MkdirAll(tagsDir, 0755); err != nil {
+	entries, err := os.ReadDir(repo.TagsDir)
+	if os.IsNotExist(err) {
+		return nil // No tags yet
+	}
+	if err != nil {
 		return err
 	}
 
-	tagPath := filepath.Join(tagsDir, tagName)
-
-	// Prevent accidental overwrite; tags are treated as immutable refs.
-	if _, err := os.Stat(tagPath); err == nil {
-		return fmt.Errorf("error: tag %s already exists", tagName)
-	} else if !os.IsNotExist(err) {
-		return err
+	for _, entry := range entries {
+		fmt.Println(entry.Name())
 	}
-
-	// Lightweight tags store only the commit hash as raw file content.
-	if err := os.WriteFile(tagPath, []byte(commitID), 0644); err != nil {
-		return err
-	}
-
-	// CLI-facing feedback; introduces stdout side effect.
-	fmt.Printf("Tag '%s' created for commit %s\n", tagName, commitID)
 	return nil
 }
 
-// ListTags reads all lightweight tags from disk and returns them
-// sorted lexicographically for stable CLI output.
-func ListTags() ([]string, error) {
-	// Repository validation prevents scanning arbitrary filesystem paths.
-	if !IsRepoInitialized() {
-		return nil, fmt.Errorf("not a kitkat repository (or any of the parent directories): .kitcat")
+// CreateTag creates a lightweight tag pointing to a specific commit.
+func CreateTag(tagName, commitHash string) error {
+	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
+		return fmt.Errorf("not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
 	}
 
-	// Absence of tag directory is treated as empty state rather than error.
-	if _, err := os.Stat(tagsDir); err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, err
-	}
-
-	entries, err := os.ReadDir(tagsDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var tags []string
-	for _, entry := range entries {
-		// Skip subdirectories to avoid interpreting nested refs or invalid layout.
-		if entry.IsDir() {
-			continue
-		}
-		tags = append(tags, entry.Name())
-	}
-
-	sort.Strings(tags)
-	return tags, nil
-}
-
-// PrintTags prints all tags to stdout, one per line.
-// Intended for CLI use; wraps ListTags for separation of concerns.
-func PrintTags() error {
-	tags, err := ListTags()
-	if err != nil {
+	tagPath := filepath.Join(repo.TagsDir, tagName)
+	
+	if err := os.MkdirAll(repo.TagsDir, 0755); err != nil {
 		return err
 	}
 
-	for _, tag := range tags {
-		fmt.Println(tag)
+	if err := SafeWrite(tagPath, []byte(commitHash+"\n"), 0644); err != nil {
+		return err
 	}
+
+	fmt.Printf("Tag '%s' created for commit %s\n", tagName, commitHash)
+	return nil
+}
+
+// CreateAnnotatedTag creates a Git-compliant annotated tag object in the database.
+func CreateAnnotatedTag(tagName, commitHash, message string) error {
+	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
+		return fmt.Errorf("not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
+	}
+
+	// 1. Get tagger identity
+	name, _, _ := GetConfig("user.name")
+	email, _, _ := GetConfig("user.email")
+	if name == "" { name = "Unknown" }
+	if email == "" { email = "unknown@example.com" }
+
+	// 2. Format Timestamp (Unix Time + Timezone Offset)
+	now := time.Now()
+	timestamp := now.Unix()
+	_, offset := now.Zone()
+	tzSign := "+"
+	if offset < 0 {
+		tzSign = "-"
+		offset = -offset
+	}
+	tzHours := offset / 3600
+	tzMins := (offset % 3600) / 60
+	tzStr := fmt.Sprintf("%s%02d%02d", tzSign, tzHours, tzMins)
+
+	taggerStr := fmt.Sprintf("%s <%s> %d %s", name, email, timestamp, tzStr)
+
+	// 3. Construct the exact Git Tag Object payload
+	payload := fmt.Sprintf("object %s\ntype commit\ntag %s\ntagger %s\n\n%s\n", commitHash, tagName, taggerStr, message)
+
+	// 4. Hash and write the Tag Object to the database (.kitcat/objects/...)
+	tagHash, err := plumbing.HashAndWriteObject([]byte(payload), "tag")
+	if err != nil {
+		return fmt.Errorf("failed to write tag object: %w", err)
+	}
+
+	// 5. Write the TAG OBJECT'S HASH to the refs/tags/ file
+	tagPath := filepath.Join(repo.TagsDir, tagName)
+	if err := os.MkdirAll(repo.TagsDir, 0755); err != nil {
+		return err
+	}
+
+	if err := SafeWrite(tagPath, []byte(tagHash+"\n"), 0644); err != nil {
+		return err
+	}
+
 	return nil
 }

@@ -1,112 +1,100 @@
 package core
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
-	"github.com/LeeFred3042U/kitcat/internal/storage"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// Status compares HEAD, index, and working directory state.
+// Status computes repository state by comparing HEAD, index,
+// and working directory. Output is deterministic.
 func Status() (string, error) {
-	// Resolve branch name early so detached HEAD or missing refs
-	// do not interfere with later index/tree inspection.
 	branch := getBranchName()
+
 	index, err := storage.LoadIndex()
 	if err != nil {
-		return "", fmt.Errorf("failed to load index: %w", err)
+		return "", fmt.Errorf("load index: %w", err)
 	}
 
-	// Build HEAD tree snapshot if a commit exists; absence is treated
-	// as an empty tree to allow status to work in fresh repositories.
+	// HEAD tree resolution.
+	// Absence of a commit is treated as empty tree.
 	headTree := make(map[string]storage.TreeEntry)
 	if headCommit, err := storage.GetLastCommit(); err == nil {
 		headTree, _ = storage.ParseTree(headCommit.TreeHash)
 	}
 
-	var unmerged []string
-	var staged []string
-	var notStaged []string
-	var untracked []string
+	var (
+		unmerged  []string
+		staged    []string
+		notStaged []string
+		untracked []string
+	)
 
-	// Collect potential rename candidates while scanning index to avoid
-	// additional passes over large trees later.
-	var addedInIndex []string
-	var deletedInIndex []string
+	unmergedSet := make(map[string]struct{})
+	addedInIndex := make([]string, 0)
+	deletedInIndex := make([]string, 0)
 
-	// Analyze index entries against HEAD to derive staged state and conflicts.
-	processedPaths := make(map[string]bool)
+	// ------------------------------------------------------------------
+	// Index vs HEAD
+	// ------------------------------------------------------------------
 
 	for path, entry := range index {
-		processedPaths[path] = true
-
-		// Non-zero stage indicates a merge conflict; collapse multiple
-		// stage entries into a single logical unmerged record.
+		// Conflict entries (stage > 0).
 		if entry.Stage > 0 {
-			status := "unmerged"
-			switch entry.Stage {
-			case 2:
-				status = "both modified"
-			case 3:
-				status = "both modified"
-			}
-
-			isDup := false
-			for _, u := range unmerged {
-				if strings.Contains(u, path) {
-					isDup = true
-					break
-				}
-			}
-			if !isDup {
-				unmerged = append(unmerged, fmt.Sprintf("%s:   %s", status, path))
+			if _, seen := unmergedSet[path]; !seen {
+				unmergedSet[path] = struct{}{}
+				unmerged = append(unmerged,
+					fmt.Sprintf("both modified:   %s", path))
 			}
 			continue
 		}
 
-		// Compare HEAD tree metadata against index snapshot to determine
-		// whether the change is content-based or permission-mode based.
-		entryHashHex := fmt.Sprintf("%x", entry.Hash)
-		entryModeOctal := fmt.Sprintf("%06o", entry.Mode)
+		entryHash := hex.EncodeToString(entry.Hash[:])
+		entryMode := fmt.Sprintf("%06o", entry.Mode)
 
 		if headEntry, inHead := headTree[path]; inHead {
-			if entryHashHex != headEntry.Hash {
-				staged = append(staged, fmt.Sprintf("modified:   %s", path))
-			} else if entryModeOctal != headEntry.Mode {
-				staged = append(staged, fmt.Sprintf("modified:   %s (mode)", path))
+			if entryHash != headEntry.Hash {
+				staged = append(staged,
+					fmt.Sprintf("modified:   %s", path))
+			} else if entryMode != headEntry.Mode {
+				staged = append(staged,
+					fmt.Sprintf("modified:   %s (mode)", path))
 			}
 		} else {
 			addedInIndex = append(addedInIndex, path)
 		}
 	}
 
-	// Files present in HEAD but absent from index are staged deletions.
 	for path := range headTree {
 		if _, inIndex := index[path]; !inIndex {
 			deletedInIndex = append(deletedInIndex, path)
 		}
 	}
 
-	// Rename detection is performed after collecting additions/deletions
-	// so expensive similarity checks are limited to relevant candidates.
-	staged = append(staged, detectRenames(addedInIndex, deletedInIndex, index, headTree)...)
+	staged = append(staged,
+		detectRenames(addedInIndex, deletedInIndex, index, headTree)...)
 
-	// Load ignore rules once; failures are non-fatal so status remains usable.
+	// ------------------------------------------------------------------
+	// Working directory scan
+	// ------------------------------------------------------------------
+
 	ignorePatterns, _ := LoadIgnorePatterns()
-	proxyIndex := make(map[string]string) // for Ignore logic
+	proxyIndex := make(map[string]string)
 
-	// Walk working directory and compare filesystem state against index cache.
-	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
-		// Skip repository metadata and unsafe paths to avoid leaking outside repo root.
+	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || path == "." || strings.HasPrefix(path, repo.Dir) {
 			return nil
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
@@ -115,128 +103,149 @@ func Status() (string, error) {
 			return nil
 		}
 
-		if entry, tracked := index[cleanPath]; tracked {
-			// Skip conflicted entries; they are already reported from index state.
+		entry, tracked := index[cleanPath]
+		if tracked {
 			if entry.Stage > 0 {
 				return nil
 			}
 
-			// Detect executable bit drift independently from content hash.
-			fileMode := info.Mode()
-			isExec := (fileMode & 0111) != 0
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+
+			// Fast size check before hashing.
+			if uint64(info.Size()) != uint64(entry.Size) {
+				notStaged = append(notStaged,
+					fmt.Sprintf("modified:   %s", cleanPath))
+				return nil
+			}
+
+			// Executable bit comparison.
+			isExec := (info.Mode() & 0111) != 0
 			entryExec := (entry.Mode & 0111) != 0
 			modeChanged := isExec != entryExec
 
-			// REMOVED: isModified stat cache check.
-			// Always hash the file to guarantee modification detection.
-			// Relying strictly on Size and MTime fails in fast integration tests
-			// where two edits happen in the exact same millisecond.
 			hash, err := storage.HashFile(cleanPath)
 			if err == nil {
-				if hash != fmt.Sprintf("%x", entry.Hash) {
-					notStaged = append(notStaged, fmt.Sprintf("modified:   %s", cleanPath))
+				entryHash := hex.EncodeToString(entry.Hash[:])
+				if hash != entryHash {
+					notStaged = append(notStaged,
+						fmt.Sprintf("modified:   %s", cleanPath))
 				} else if modeChanged {
-					notStaged = append(notStaged, fmt.Sprintf("modified:   %s (mode)", cleanPath))
+					notStaged = append(notStaged,
+						fmt.Sprintf("modified:   %s (mode)", cleanPath))
 				}
 			}
 		} else {
-			// Untracked files are filtered through ignore patterns to avoid noise.
 			if !ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
 				untracked = append(untracked, cleanPath)
 			}
 		}
+
 		return nil
 	})
 
-	// Files missing from disk but present in index are reported as unstaged deletions.
+	// Detect deleted files (present in index, absent on disk).
 	for path, entry := range index {
 		if entry.Stage > 0 {
 			continue
 		}
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			notStaged = append(notStaged, fmt.Sprintf("deleted:    %s", path))
+			notStaged = append(notStaged,
+				fmt.Sprintf("deleted:    %s", path))
 		}
 	}
 
-	// Produce final formatted output once all state has been derived.
 	return formatStatus(branch, unmerged, staged, notStaged, untracked), nil
 }
 
-// detectRenames matches additions and deletions by Hash (100%) or Content Similarity (>50%)
-func detectRenames(added, deleted []string, index map[string]plumbing.IndexEntry, headTree map[string]storage.TreeEntry) []string {
+// detectRenames resolves rename operations using two-phase matching.
+// Phase 1: exact hash match (O(n)).
+// Phase 2: similarity-based heuristic (>50% Jaccard).
+func detectRenames(
+	added, deleted []string,
+	index map[string]plumbing.IndexEntry,
+	headTree map[string]storage.TreeEntry,
+) []string {
+
 	var results []string
-	usedDeleted := make(map[string]bool)
+	usedDeleted := make(map[string]struct{})
 
-	// Exact hash match provides a fast O(n²) but cheap rename detection
-	// before attempting slower content similarity comparisons.
-	for i := len(added) - 1; i >= 0; i-- {
-		addPath := added[i]
-		addHash := fmt.Sprintf("%x", index[addPath].Hash)
+	// Exact match phase.
+	hashToDeleted := make(map[string]string)
+	for _, del := range deleted {
+		hashToDeleted[headTree[del].Hash] = del
+	}
 
-		for _, delPath := range deleted {
-			if usedDeleted[delPath] {
-				continue
-			}
-			if headTree[delPath].Hash == addHash {
-				results = append(results, fmt.Sprintf("renamed:    %s -> %s", delPath, addPath))
-				usedDeleted[delPath] = true
-				added = append(added[:i], added[i+1:]...)
-				break
-			}
+	remainingAdded := make([]string, 0, len(added))
+
+	for _, add := range added {
+		entry := index[add]
+		addHash := hex.EncodeToString(entry.Hash[:])
+
+		if del, ok := hashToDeleted[addHash]; ok {
+			results = append(results,
+				fmt.Sprintf("renamed:    %s -> %s", del, add))
+			usedDeleted[del] = struct{}{}
+		} else {
+			remainingAdded = append(remainingAdded, add)
 		}
 	}
 
-	// Similarity pass loads blob contents and is intentionally deferred
-	// to reduce decompression and memory overhead.
-	for _, addPath := range added {
+	// Similarity phase.
+	for _, add := range remainingAdded {
+		entry := index[add]
+		newContent, _ := storage.ReadObject(
+			hex.EncodeToString(entry.Hash[:]),
+		)
+
 		bestMatch := ""
 		bestScore := 0.0
 
-		// Load new content once to avoid repeated object reads.
-		newContent, _ := storage.ReadObject(fmt.Sprintf("%x", index[addPath].Hash))
-
-		for _, delPath := range deleted {
-			if usedDeleted[delPath] {
+		for _, del := range deleted {
+			if _, used := usedDeleted[del]; used {
 				continue
 			}
 
-			oldContent, _ := storage.ReadObject(headTree[delPath].Hash)
-
+			oldContent, _ := storage.ReadObject(headTree[del].Hash)
 			score := calculateSimilarity(oldContent, newContent)
+
 			if score > 0.5 && score > bestScore {
 				bestScore = score
-				bestMatch = delPath
+				bestMatch = del
 			}
 		}
 
 		if bestMatch != "" {
-			results = append(results, fmt.Sprintf("renamed:    %s -> %s", bestMatch, addPath))
-			usedDeleted[bestMatch] = true
+			results = append(results,
+				fmt.Sprintf("renamed:    %s -> %s", bestMatch, add))
+			usedDeleted[bestMatch] = struct{}{}
 		} else {
-			results = append(results, fmt.Sprintf("new file:   %s", addPath))
+			results = append(results,
+				fmt.Sprintf("new file:   %s", add))
 		}
 	}
 
-	// Any remaining unmatched deletions are treated as true removals.
-	for _, delPath := range deleted {
-		if !usedDeleted[delPath] {
-			results = append(results, fmt.Sprintf("deleted:    %s", delPath))
+	for _, del := range deleted {
+		if _, used := usedDeleted[del]; !used {
+			results = append(results,
+				fmt.Sprintf("deleted:    %s", del))
 		}
 	}
+
 	return results
 }
 
-// calculateSimilarity returns a 0.0-1.0 score based on line overlap (Jaccard Index)
+// calculateSimilarity returns Jaccard line similarity in range [0,1].
 func calculateSimilarity(a, b []byte) float64 {
-	// Line-based sets trade accuracy for speed and simplicity;
-	// suitable for heuristic rename detection rather than diffing.
-	linesA := strings.Split(string(a), "\n")
-	linesB := strings.Split(string(b), "\n")
+	linesA := bytes.Split(a, []byte("\n"))
+	linesB := bytes.Split(b, []byte("\n"))
 
-	setA := make(map[string]bool)
+	setA := make(map[string]struct{})
 	for _, l := range linesA {
 		if len(l) > 0 {
-			setA[l] = true
+			setA[string(l)] = struct{}{}
 		}
 	}
 
@@ -247,48 +256,53 @@ func calculateSimilarity(a, b []byte) float64 {
 		if len(l) == 0 {
 			continue
 		}
-		if setA[l] {
+		str := string(l)
+		if _, ok := setA[str]; ok {
 			intersection++
 		} else {
 			union++
 		}
 	}
 
-	// Empty content on both sides implies identical similarity.
 	if union == 0 {
 		return 1.0
 	}
 	return float64(intersection) / float64(union)
 }
 
+// getBranchName resolves current branch.
+// Falls back to detached state if HEAD contains a raw commit.
 func getBranchName() string {
-	// Default to detached HEAD to avoid implying branch semantics
-	// when HEAD contains a raw commit hash.
 	branch := "HEAD (detached)"
+
 	headContent, err := os.ReadFile(repo.HeadPath)
-	if err == nil {
-		content := strings.TrimSpace(string(headContent))
-		if strings.HasPrefix(content, "ref: refs/heads/") {
-			branch = strings.TrimPrefix(content, "ref: refs/heads/")
-		}
+	if err != nil {
+		return branch
 	}
+
+	content := strings.TrimSpace(string(headContent))
+	if trimmed, ok := strings.CutPrefix(content, "ref: refs/heads/"); ok {
+		return trimmed
+	}
+
 	return branch
 }
 
+// formatStatus renders deterministic status output.
 func formatStatus(branch string, unmerged, staged, notStaged, untracked []string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("On branch %s\n", branch))
 
 	printSection := func(title, color string, items []string) {
-		if len(items) > 0 {
-			// Sorting ensures deterministic output regardless of map iteration order.
-			sort.Strings(items)
-			sb.WriteString(title + ":\n")
-			for _, s := range items {
-				sb.WriteString(fmt.Sprintf("  \033[%sm%s\033[0m\n", color, s))
-			}
-			sb.WriteString("\n")
+		if len(items) == 0 {
+			return
 		}
+		sort.Strings(items)
+		sb.WriteString(title + ":\n")
+		for _, s := range items {
+			sb.WriteString(fmt.Sprintf("  \033[%sm%s\033[0m\n", color, s))
+		}
+		sb.WriteString("\n")
 	}
 
 	printSection("Unmerged paths", "31", unmerged)
@@ -296,9 +310,9 @@ func formatStatus(branch string, unmerged, staged, notStaged, untracked []string
 	printSection("Changes not staged for commit", "31", notStaged)
 	printSection("Untracked files", "31", untracked)
 
-	// Explicit clean message avoids ambiguous empty output.
 	if len(unmerged)+len(staged)+len(notStaged)+len(untracked) == 0 {
 		sb.WriteString("nothing to commit, working tree clean")
 	}
+
 	return strings.TrimSpace(sb.String())
 }

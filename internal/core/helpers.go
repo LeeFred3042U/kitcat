@@ -3,8 +3,10 @@ package core
 import (
 	"path/filepath"
 	"encoding/hex"
+	"syscall"
 	"os/exec"
 	"strings"
+	"errors"
 	"bufio"
 	"bytes"
 	"time"
@@ -12,9 +14,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
+	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
@@ -63,9 +65,7 @@ func CaptureViaEditor(filename, initialContent string) (string, error) {
 }
 
 // FindRepoRoot searches for the .kitcat directory starting from the current
-// working directory and walking up the tree. Returns the absolute path to
-// the repository root or an error if not found.
-// This function is pure and does not mutate the current working directory.
+// working directory and walking up the tree.
 func FindRepoRoot() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -91,7 +91,6 @@ func FindRepoRoot() (string, error) {
 
 // IsRepoInitialized checks if a repository exists and switches the Current
 // Working Directory (CWD) to the repository root if found.
-// Wraps FindRepoRoot for backward compatibility with main.go command flow.
 func IsRepoInitialized() bool {
 	root, err := FindRepoRoot()
 	if err != nil {
@@ -105,7 +104,7 @@ func IsRepoInitialized() bool {
 
 // GetHeadState returns the active branch name or raw commit hash if detached.
 func GetHeadState() (string, error) {
-	headContent, err := os.ReadFile(".kitcat/HEAD")
+	headContent, err := os.ReadFile(repo.HeadPath)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +117,7 @@ func GetHeadState() (string, error) {
 
 // IsDetachedHead returns true when HEAD contains a direct commit hash.
 func IsDetachedHead() (bool, error) {
-	headContent, err := os.ReadFile(".kitcat/HEAD")
+	headContent, err := os.ReadFile(repo.HeadPath)
 	if err != nil {
 		return false, err
 	}
@@ -126,7 +125,6 @@ func IsDetachedHead() (bool, error) {
 }
 
 // VerifyCleanTree ensures index matches HEAD tree exactly.
-// Used as a safety guard before destructive operations.
 func VerifyCleanTree() error {
 	index, err := storage.LoadIndex()
 	if err != nil {
@@ -156,7 +154,6 @@ func VerifyCleanTree() error {
 			return fmt.Errorf("dirty: %s", path)
 		}
 
-		// Convert binary hash to hex for comparison with tree map.
 		entryHashHex := hex.EncodeToString(entry.Hash[:])
 		if entryHashHex != headEntry.Hash {
 			return fmt.Errorf("dirty: %s", path)
@@ -178,7 +175,6 @@ func RestoreIndexFromCommit(commitID string) error {
 	}
 
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
-		// Clear existing entries before rebuilding.
 		for k := range index {
 			delete(index, k)
 		}
@@ -201,8 +197,7 @@ func RestoreIndexFromCommit(commitID string) error {
 	})
 }
 
-// IsWorkDirDirty checks staged and unstaged differences between HEAD, index,
-// and working directory. Returns true on first detected change.
+// IsWorkDirDirty checks staged and unstaged differences.
 func IsWorkDirDirty() (bool, error) {
 	headTree := make(map[string]storage.TreeEntry)
 	lastCommit, err := GetHeadCommit()
@@ -219,7 +214,6 @@ func IsWorkDirDirty() (bool, error) {
 		return false, err
 	}
 
-	// Compare index vs HEAD to detect staged changes.
 	allPaths := make(map[string]bool)
 	for path := range headTree {
 		allPaths[path] = true
@@ -242,14 +236,12 @@ func IsWorkDirDirty() (bool, error) {
 		}
 	}
 
-	// Compare working tree vs index.
 	err = filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		cleanPath := filepath.Clean(path)
 
-		// Skip repo metadata directory.
 		if info.IsDir() || strings.HasPrefix(cleanPath, repo.Dir+string(os.PathSeparator)) || cleanPath == repo.Dir {
 			return nil
 		}
@@ -282,7 +274,6 @@ func IsWorkDirDirty() (bool, error) {
 }
 
 // UpdateBranchPointer updates either the branch reference or HEAD itself.
-// Uses SafeWrite to avoid partial writes during ref updates.
 func UpdateBranchPointer(commitHash string) error {
 	headData, err := os.ReadFile(repo.HeadPath)
 	if err != nil {
@@ -292,7 +283,7 @@ func UpdateBranchPointer(commitHash string) error {
 
 	if strings.HasPrefix(ref, "ref: ") {
 		refPath := strings.TrimPrefix(ref, "ref: ")
-		branchFile := filepath.Join(".kitcat", refPath)
+		branchFile := filepath.Join(repo.Dir, refPath)
 		if err := SafeWrite(branchFile, []byte(commitHash), 0644); err != nil {
 			return fmt.Errorf("failed to update branch pointer: %w", err)
 		}
@@ -315,7 +306,7 @@ func readHead() (string, error) {
 
 	if strings.HasPrefix(ref, "ref: ") {
 		refPath := strings.TrimPrefix(ref, "ref: ")
-		branchFile := filepath.Join(".kitcat", refPath)
+		branchFile := filepath.Join(repo.Dir, refPath)
 		commitHash, err := os.ReadFile(branchFile)
 		if err != nil {
 			return "", err
@@ -325,8 +316,7 @@ func readHead() (string, error) {
 	return ref, nil
 }
 
-// IsSafePath rejects absolute paths and parent traversal segments to avoid
-// writes outside repository boundaries.
+// IsSafePath rejects absolute paths and parent traversal segments.
 func IsSafePath(path string) bool {
 	cleanPath := filepath.Clean(path)
 	if filepath.IsAbs(cleanPath) {
@@ -338,30 +328,85 @@ func IsSafePath(path string) bool {
 	return true
 }
 
-// SafeWrite performs atomic file updates by writing to a temp file and renaming.
+// SafeWrite performs atomic file updates with a Windows-safe retry loop.
 func SafeWrite(filename string, data []byte, perm os.FileMode) error {
-	dirPath := filepath.Dir(filename)
-	f, err := os.CreateTemp(dirPath, "atomic-")
+	dir := filepath.Dir(filename)
+
+	// Create temp file in same directory
+	f, err := os.CreateTemp(dir, "atomic-")
 	if err != nil {
 		return err
 	}
 	tmpName := f.Name()
-	defer os.Remove(tmpName)
 
+	cleanup := func(e error) error {
+		f.Close()
+		_ = os.Remove(tmpName)
+		return e
+	}
+
+	// Write
 	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
+		return cleanup(err)
 	}
+
+	// Ensure file contents hit disk
+	if err := f.Sync(); err != nil {
+		return cleanup(err)
+	}
+
 	if err := f.Chmod(perm); err != nil {
-		f.Close()
-		return err
+		return cleanup(err)
 	}
-	f.Close()
-	return os.Rename(tmpName, filename)
+
+	if err := f.Close(); err != nil {
+		return cleanup(err)
+	}
+
+	// Windows-safe retry loop
+	const maxRetries = 5
+	delay := 10 * time.Millisecond
+
+	for i := 0; i < maxRetries; i++ {
+		err = os.Rename(tmpName, filename)
+		if err == nil {
+			break
+		}
+
+		// Only retry on known transient Windows errors
+		if !isRetryable(err) {
+			_ = os.Remove(tmpName)
+			return err
+		}
+
+		if i < maxRetries-1 {
+			time.Sleep(delay)
+			delay *= 2
+		}
+	}
+
+	if err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("rename %s -> %s failed: %w", tmpName, filename, err)
+	}
+
+	// Unix durability: fsync directory
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+
+	return nil
 }
 
-// GetHeadCommit returns the commit referenced by HEAD, which may differ
-// from the last chronological commit after resets or history rewrites.
+func isRetryable(err error) bool {
+	// Windows tends to return EBUSY/EACCES if antivirus
+	// or another process is holding the file briefly.
+	return errors.Is(err, syscall.EBUSY) ||
+		errors.Is(err, syscall.EACCES)
+}
+
+// GetHeadCommit returns the commit referenced by HEAD.
 func GetHeadCommit() (models.Commit, error) {
 	commitHash, err := readHead()
 	if err != nil {
@@ -371,7 +416,6 @@ func GetHeadCommit() (models.Commit, error) {
 }
 
 // copyRecursive copies a file or directory tree.
-// Used when os.Rename fails across filesystem boundaries.
 func copyRecursive(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {
@@ -379,7 +423,6 @@ func copyRecursive(src, dst string) error {
 	}
 
 	if info.IsDir() {
-		// Create destination directory before descending so structure is preserved.
 		if err := os.MkdirAll(dst, info.Mode()); err != nil {
 			return err
 		}
@@ -389,7 +432,6 @@ func copyRecursive(src, dst string) error {
 			return err
 		}
 
-		// Recursively copy children to maintain relative layout.
 		for _, e := range entries {
 			s := filepath.Join(src, e.Name())
 			d := filepath.Join(dst, e.Name())
@@ -400,14 +442,12 @@ func copyRecursive(src, dst string) error {
 		return nil
 	}
 
-	// File copy
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	// Ensure parent directory exists to avoid partial copy failures.
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
@@ -418,17 +458,14 @@ func copyRecursive(src, dst string) error {
 	}
 	defer out.Close()
 
-	// Stream copy avoids loading entire file into memory.
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}
 
-	// Preserve original file mode for consistency with git mv fallback behaviour.
 	return out.Chmod(info.Mode())
 }
 
-// checkoutIndexFromMap writes tree contents directly into the working
-// directory. Existing files may be overwritten.
+// checkoutIndexFromMap writes tree contents directly into the working directory.
 func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
 	for path, entry := range tree {
 		content, err := storage.ReadObject(entry.Hash)
@@ -451,7 +488,7 @@ func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
 	return nil
 }
 
-// ReflogAppend writes a standard git-style entry to the reflog for a given reference.
+// ReflogAppend writes a standard git-style entry to the reflog.
 func ReflogAppend(refname, oldHash, newHash, message string) error {
 	name, _, _ := GetConfig("user.name")
 	email, _, _ := GetConfig("user.email")
@@ -471,7 +508,7 @@ func ReflogAppend(refname, oldHash, newHash, message string) error {
 
 	logEntry := fmt.Sprintf("%s %s %s <%s> %d %s\t%s\n", oldHash, newHash, name, email, timestamp, tzOffset, message)
 
-	logPath := filepath.Join(".kitcat", "logs", refname)
+	logPath := filepath.Join(repo.Dir, "logs", refname)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
@@ -494,7 +531,6 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 		return err
 	}
 	
-	// Delegate to the new architecture logic
 	if err := CheckoutTree(commit.TreeHash); err != nil {
 		return err
 	}

@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
@@ -34,7 +36,7 @@ func Checkout(target string, force bool) error {
 
 	// 2. RESOLVE TARGET
 	var headContent string
-	if b, err := os.ReadFile(".kitcat/refs/heads/" + target); err == nil {
+	if b, err := os.ReadFile(filepath.Join(repo.HeadsDir, target)); err == nil {
 		hash = strings.TrimSpace(string(b))
 		headContent = "ref: refs/heads/" + target
 	} else {
@@ -43,7 +45,7 @@ func Checkout(target string, force bool) error {
 
 	commit, err := storage.FindCommit(hash)
 	if err != nil {
-		return fmt.Errorf("pathspec '%s' did not match any file(s) known to kitcat", target)
+		return fmt.Errorf("pathspec '%s' did not match any file(s) known to %s", target, app.Name)
 	}
 
 	tree, err := storage.ParseTree(commit.TreeHash)
@@ -123,7 +125,7 @@ func Checkout(target string, force bool) error {
 	}
 
 	// 4. INVARIANT: HEAD moves last!
-	if err := SafeWrite(".kitcat/HEAD", []byte(headContent), 0644); err != nil {
+	if err := SafeWrite(repo.HeadPath, []byte(headContent), 0644); err != nil {
 		return err
 	}
 

@@ -13,7 +13,22 @@ func handleShowObject(args []string) {
 		fmt.Fprintf(os.Stderr, "Usage: %s show-object <hash>\n", app.Name)
 		os.Exit(exitUsage)
 	}
-	if err := core.ShowObject(args[0]); err != nil {
+
+	hash := args[0]
+
+	// Architectural fix: Resolve "HEAD" to its underlying commit hash
+	if hash == "HEAD" {
+		resolvedHash, err := core.ResolveHead()
+		if err != nil {
+			die("cannot resolve HEAD: %v", err)
+		}
+		if resolvedHash == "" {
+			die("cannot resolve HEAD: ref is empty or invalid")
+		}
+		hash = resolvedHash
+	}
+
+	if err := core.ShowObject(hash); err != nil {
 		die("%v", err)
 	}
 }

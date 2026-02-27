@@ -34,6 +34,7 @@ var commands = map[string]func([]string){
 	"ls-files":    handleLsFiles,
 	"show-object": handleShowObject,
 	"config":      handleConfig,
+	"stash":       handleStash,
 	"help":        handleHelp,
 }
 

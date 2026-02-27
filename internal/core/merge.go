@@ -1,12 +1,12 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/merge"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -17,7 +17,7 @@ import (
 func Merge(branchToMerge string) error {
 	// Ensure we are inside a repository before performing destructive operations.
 	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
-		return errors.New("not a kitcat repository (run `kitcat init`)")
+		return fmt.Errorf("not a %s repository (run `%s init`)", app.Name, app.Name)
 	}
 
 	// Abort if working directory has local modifications.
@@ -90,11 +90,11 @@ func Merge(branchToMerge string) error {
 	}
 
 	// 3. Write Merge State for the upcoming commit
-	SafeWrite(".kitcat/MERGE_HEAD", []byte(featureHeadHash), 0644)
+	SafeWrite(filepath.Join(repo.Dir, "MERGE_HEAD"), []byte(featureHeadHash), 0644)
 	
 	currentBranch, _ := GetHeadState()
 	mergeMsg := fmt.Sprintf("Merge branch '%s' into '%s'\n", branchToMerge, currentBranch)
-	SafeWrite(".kitcat/MERGE_MSG", []byte(mergeMsg), 0644)
+	SafeWrite(filepath.Join(repo.Dir, "MERGE_MSG"), []byte(mergeMsg), 0644)
 
 	// 4. Handle Conflicts UX
 	if len(plan.Conflicts) > 0 {
@@ -106,6 +106,31 @@ func Merge(branchToMerge string) error {
 	}
 
 	// 5. Clean Merge UX
-	fmt.Println("Merge successful. Run `kitcat commit` to finalize the merge commit.")
+	fmt.Printf("Merge successful. Run `%s commit` to finalize the merge commit.\n", app.Name)
+	return nil
+}
+
+// MergeAbort cancels an active merge conflict state, restores the original HEAD,
+// and cleans up the merge state files.
+func MergeAbort() error {
+	mergeHeadPath := filepath.Join(repo.Dir, "MERGE_HEAD")
+	if _, err := os.Stat(mergeHeadPath); os.IsNotExist(err) {
+		return fmt.Errorf("fatal: There is no merge to abort (MERGE_HEAD missing).")
+	}
+
+	headCommit, err := GetHeadCommit()
+	if err != nil {
+		return fmt.Errorf("failed to get HEAD commit: %w", err)
+	}
+
+	// Hard reset to the current HEAD to wipe out the dirty working tree and index
+	if err := Reset(headCommit.ID, ResetHard); err != nil {
+		return fmt.Errorf("failed to restore original HEAD state: %w", err)
+	}
+
+	// Scrub the state files
+	os.Remove(mergeHeadPath)
+	os.Remove(filepath.Join(repo.Dir, "MERGE_MSG"))
+
 	return nil
 }

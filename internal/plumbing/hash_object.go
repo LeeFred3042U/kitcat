@@ -45,7 +45,6 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 	hash := fmt.Sprintf("%x", sum)
 
 	// Fan-out directory structure avoids too many files in a single directory
-	// and mirrors Git’s object storage layout.
 	dir := filepath.Join(".kitcat/objects", hash[:2])
 	path := filepath.Join(dir, hash[2:])
 

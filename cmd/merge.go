@@ -10,10 +10,20 @@ import (
 
 func handleMerge(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s merge <branch>\n", app.Name)
+		fmt.Fprintf(os.Stderr, "Usage: %s merge <branch> | --abort\n", app.Name)
 		os.Exit(exitUsage)
 	}
-	if err := core.Merge(args[0]); err != nil {
+
+	arg := args[0]
+
+	if arg == "--abort" {
+		if err := core.MergeAbort(); err != nil {
+			die("%v", err)
+		}
+		return
+	}
+
+	if err := core.Merge(arg); err != nil {
 		die("%v", err)
 	}
 }

@@ -38,22 +38,21 @@ func Init() error {
 
 	// Initialize HEAD only if missing to avoid resetting
 	// the active branch on repeated init calls.
-	// Initialize HEAD only if missing to avoid resetting
-	// the active branch on repeated init calls.
 	headPath := filepath.Join(repo.Dir, "HEAD")
 	if _, err := os.Stat(headPath); os.IsNotExist(err) {
-		// FIXED: Default new repositories to 'main' instead of 'master'
+		// Default new repositories to 'main' instead of 'master'
 		headContent := []byte("ref: refs/heads/main\n")
 		if err := os.WriteFile(headPath, headContent, 0o644); err != nil {
 			return fmt.Errorf("failed to create HEAD: %w", err)
 		}
 	}
 
-	// Create an empty config file so later commands can
-	// safely append settings without checking existence.
+	// Create a Git-compliant INI config file so later commands can
+	// safely append settings and external Git tools can read it.
 	configPath := filepath.Join(repo.Dir, "config")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		if err := os.WriteFile(configPath, []byte(""), 0o644); err != nil {
+		configContent := []byte("[core]\n\trepositoryformatversion = 0\n\tfilemode = false\n\tbare = false\n\tlogallrefupdates = true\n")
+		if err := os.WriteFile(configPath, configContent, 0o644); err != nil {
 			return fmt.Errorf("failed to create config: %w", err)
 		}
 	}

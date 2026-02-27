@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
@@ -20,7 +21,7 @@ func handleRm(args []string) {
 	}
 
 	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: kitcat rm [-r] [--cached] <file>...")
+		fmt.Fprintf(os.Stderr, "Usage: %s rm [-r] [--cached] <file>...\n", app.Name)
 		os.Exit(exitUsage)
 	}
 

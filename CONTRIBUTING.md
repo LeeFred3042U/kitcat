@@ -1,6 +1,6 @@
-# Contributing to kitkat
+# Contributing to kitcat
 
-Thank you for your interest in contributing to **kitkat**! We are building an educational reimplementation of Git in Go, and we welcome contributors of all experience levels.
+Thank you for your interest in contributing to **kitcat**! We are building an educational reimplementation of Git in Go, and we welcome contributors of all experience levels.
 
 Whether you are a student looking for your first open-source contribution or a systems engineer wanting to solve complex algorithmic challenges, there is a place for you here.
 
@@ -17,7 +17,7 @@ We have organized contributions into three tracks. Please choose one that matche
 > Note:
 > These tracks describe **issue difficulty and learning scope only**.
 > They do **not** define Pull Request structure, review standards, or change risk.
-> PR review is based on the *type of change* (feature, fix, test, chore), not the issue difficulty label.
+> PR review is based on the _type of change_ (feature, fix, test, chore), not the issue difficulty label.
 
 ### Easy (Start Here)
 
@@ -33,7 +33,7 @@ Generally suitable if you are new to Go or Open Source
 Great if you know some Go and want to build features.
 
 - **What you do:** Add new logic, fix standard bugs, handle flags.
-- **Example:** "Implement `kitkat log -n 5`"
+- **Example:** "Implement `kitcat log -n 5`"
 
 ### Hard (Core Logic)
 
@@ -54,7 +54,6 @@ For contributors comfortable reasoning about complex behavior
 - You will be automatically assigned the issue by a bot
 - You cant be working on multiple issue at a time
 - When your pr is merged only then you may work on a new issue
-
 
 ### Prerequisites
 
@@ -78,8 +77,8 @@ For contributors comfortable reasoning about complex behavior
 2. **Clone** your fork:
 
 ```bash
-git clone https://github.com/username/kitkat.git
-cd kitkat
+git clone https://github.com/username/kitcat.git
+cd kitcat
 ```
 
 ### 3. Add Upstream Remote
@@ -99,8 +98,8 @@ git remote -v
 You should see:
 
 ```
-origin    https://github.com/username/kitkat.git (fetch)
-origin    https://github.com/username/kitkat.git (push)
+origin    https://github.com/username/kitcat.git (fetch)
+origin    https://github.com/username/kitcat.git (push)
 upstream  https://github.com/LeeFred3042U/kitcat.git (fetch)
 upstream  https://github.com/LeeFred3042U/kitcat.git (push)
 ```
@@ -137,14 +136,14 @@ git checkout -b docs/add-status-diagram
 ### 6. Build the Project
 
 ```bash
-go build -o kitkat ./cmd/main.go
+go build -o kitcat ./cmd/main.go
 ```
 
 ### 7. Verify if it Runs
 
 ```bash
-./kitkat init
-./kitkat help
+./kitcat init
+./kitcat help
 ```
 
 ### 8. Make Changes
@@ -207,10 +206,10 @@ You must include a **Screenshot** or **Terminal Output** in your PR description 
 > I tested the `help` command. Here is the output of terminal showing it
 
 ```bash
-[terminal@terminal kitkat] $ ./kitkat help
-usage: kitkat <command> [arguments]
+[terminal@terminal kitcat] $ ./kitcat help
+usage: kitcat <command> [arguments]
 
-These are the common KitKat commands:
+These are the common KitCat commands:
    tag        Create a new tag for a commit
    merge      Merge a branch into the current branch.
    ls-files   Show information about files in the index
@@ -218,11 +217,11 @@ These are the common KitKat commands:
    commit     Record changes to the repository.
    log        Show the commit history
    clean      Remove untracked files from the working directory
-   init       Initialize a new KitKat repository
+   init       Initialize a new KitCat repository
    add        Add file contents to the index.
    diff       Show changes between the last commit and staging area
 
-Use 'kitkat help <command>' for more information about a command
+Use 'kitcat help <command>' for more information about a command
 ```
 
 OR
@@ -235,7 +234,7 @@ OR
 
 # Editing & Creating Architecture Diagrams (PlantUML)
 
-KitKat's architecture diagrams are stored in `.puml` format and exported as `.png`.
+KitCat's architecture diagrams are stored in `.puml` format and exported as `.png`.
 If you are **creating new diagrams**, follow the same workflow used for editing existing ones.
 
 All source files live under:
@@ -288,7 +287,6 @@ Pull Requests missing the PNG export will be rejected.
 
 ---
 
-
 ## Security Reporting
 
 Please refer to [SECURITY.md](SECURITY.md) for details. Issues involving **data loss, repository corruption, or checkout/reset overwrites** must be reported privately via the email listed in `SECURITY.md` and **must NOT** be reported via public GitHub issues or Pull Requests
@@ -297,7 +295,7 @@ Please refer to [SECURITY.md](SECURITY.md) for details. Issues involving **data 
 
 ## Code of Conduct
 
-Please note that this project is released with a [Code of Conduct](https://www.google.com/search?q=CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
+Please note that this project is released with a [Code of Conduct](./CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
 
 ## License
 

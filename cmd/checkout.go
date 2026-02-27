@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
@@ -11,7 +12,6 @@ func handleCheckout(args []string) {
 	force := false
 	var cleanArgs []string
 
-	// Extract the force flag and keep the rest of the arguments
 	for _, arg := range args {
 		if arg == "-f" || arg == "--force" {
 			force = true
@@ -21,13 +21,13 @@ func handleCheckout(args []string) {
 	}
 
 	if len(cleanArgs) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: kitcat checkout [-f] <branch> | [-f] -b <new_branch>")
+		fmt.Fprintf(os.Stderr, "Usage: %s checkout [-f] <branch> | [-f] -b <new_branch>\n", app.Name)
 		os.Exit(exitUsage)
 	}
 
 	if cleanArgs[0] == "-b" {
 		if len(cleanArgs) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: kitcat checkout [-f] -b <new_branch>")
+			fmt.Fprintf(os.Stderr, "Usage: %s checkout [-f] -b <new_branch>\n", app.Name)
 			os.Exit(exitUsage)
 		}
 		newBranch := cleanArgs[1]
@@ -35,7 +35,6 @@ func handleCheckout(args []string) {
 			die("failed to create branch: %v", err)
 		}
 		
-		// Pass the force boolean to Checkout
 		if err := core.Checkout(newBranch, force); err != nil {
 			die("failed to checkout new branch: %v", err)
 		}
@@ -44,7 +43,6 @@ func handleCheckout(args []string) {
 	}
 
 	arg := cleanArgs[0]
-	// Pass the force boolean to Checkout
 	if err := core.Checkout(arg, force); err != nil {
 		die("%v", err)
 	}

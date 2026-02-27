@@ -2,20 +2,19 @@ package storage
 
 import (
 	"encoding/hex"
+	"sort"
 	"fmt"
 	"os"
-	"sort"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
-
-const IndexPath = ".kitcat/index"
 
 // LoadIndex reads the plumbing index file and converts it into a
 // path-keyed map for easier mutation by higher-level logic.
 func LoadIndex() (map[string]plumbing.IndexEntry, error) {
 	// Read-only operations avoid locking to keep reads cheap; writers must lock.
-	entries, err := plumbing.ReadIndex(IndexPath)
+	entries, err := plumbing.ReadIndex(repo.IndexPath)
 	if os.IsNotExist(err) {
 		return make(map[string]plumbing.IndexEntry), nil
 	}
@@ -33,7 +32,7 @@ func LoadIndex() (map[string]plumbing.IndexEntry, error) {
 // mutation callback, and persists the result atomically.
 func UpdateIndex(fn func(index map[string]plumbing.IndexEntry) error) error {
 	// Writers must serialize access to prevent concurrent index corruption.
-	l, err := lock(IndexPath)
+	l, err := lock(repo.IndexPath)
 	if err != nil {
 		return err
 	}
@@ -69,7 +68,7 @@ func WriteIndex(simpleMap map[string]string) error {
 // converting hashes into IndexEntry values.
 func WriteIndexFromTree(tree map[string]TreeEntry) error {
 	// Lock ensures only one writer modifies the index at a time.
-	l, err := lock(IndexPath)
+	l, err := lock(repo.IndexPath)
 	if err != nil {
 		return err
 	}
@@ -104,10 +103,10 @@ func writeMapToDisk(indexMap map[string]plumbing.IndexEntry) error {
 	// Stable ordering is required so index checksum remains deterministic.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 
-	if err := os.MkdirAll(".kitcat", 0755); err != nil {
+	if err := os.MkdirAll(repo.Dir, 0755); err != nil {
 		return err
 	}
-	return plumbing.UpdateIndex(entries, IndexPath)
+	return plumbing.UpdateIndex(entries, repo.IndexPath)
 }
 
 // HexToHash converts a hex SHA-1 string into a fixed-length [20]byte.

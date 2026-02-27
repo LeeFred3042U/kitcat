@@ -43,5 +43,7 @@ func handleConfig(args []string) {
 	}
 	if found {
 		fmt.Println(val)
+	} else {
+		os.Exit(exitFailure)
 	}
 }

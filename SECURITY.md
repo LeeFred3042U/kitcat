@@ -26,7 +26,7 @@ This includes (but is not limited to):
 
 Treat the following as **security issues**, not normal bugs:
 
-- Silent corruption of `.kitkat` repositories
+- Silent corruption of `.kitcat` repositories
 - Incorrect handling of user data on disk
 - Overwriting files without explicit user intent
 - Unsafe defaults that can destroy local changes
@@ -43,29 +43,36 @@ If in doubt, **report it as a security issue**.
 Your email **must** include the following:
 
 ### 1. Summary
+
 One or two sentences describing the issue.
 
 ### 2. Affected Area
+
 Specify exactly what is affected:
+
 - Command(s)
 - Files or directories
 - Storage / index / object layer
 - Branch (main / develop)
 
 ### 3. Reproduction Steps
+
 Exact, minimal steps to reproduce the issue.
 Include commands run and files touched.
 
 ### 4. Impact
+
 Explain what can go wrong:
+
 - Data loss
 - Repo corruption
 - Incorrect behavior
 - Crash / denial of service
 
 ### 5. Environment
+
 - OS
-- KitKat version / commit hash
+- KitCat version / commit hash
 - Go version
 
 Reports missing this information may be ignored.
@@ -109,6 +116,7 @@ This policy exists to protect users from data loss and maintain repository integ
 
 ## Final Note
 
-If your report involves `.git`, `.kitkat`, object storage, index files, or checkout/reset behavior, assume it is security-sensitive and report it privately
+If your report involves `.git`, `.kitcat`, object storage, index files, or checkout/reset behavior, assume it is security-sensitive and report it privately
 
 When in doubt: **email first**
+

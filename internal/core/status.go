@@ -9,7 +9,7 @@ import (
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // Status compares HEAD, index, and working directory state.
@@ -103,7 +103,7 @@ func Status() (string, error) {
 	// Walk working directory and compare filesystem state against index cache.
 	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		// Skip repository metadata and unsafe paths to avoid leaking outside repo root.
-		if err != nil || path == "." || strings.HasPrefix(path, constant.RepoDir) {
+		if err != nil || path == "." || strings.HasPrefix(path, repo.Dir) {
 			return nil
 		}
 		if info.IsDir() {
@@ -265,7 +265,7 @@ func getBranchName() string {
 	// Default to detached HEAD to avoid implying branch semantics
 	// when HEAD contains a raw commit hash.
 	branch := "HEAD (detached)"
-	headContent, err := os.ReadFile(constant.HeadPath)
+	headContent, err := os.ReadFile(repo.HeadPath)
 	if err == nil {
 		content := strings.TrimSpace(string(headContent))
 		if strings.HasPrefix(content, "ref: refs/heads/") {

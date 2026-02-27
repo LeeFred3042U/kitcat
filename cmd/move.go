@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
@@ -19,7 +20,7 @@ func handleMv(args []string) {
 	}
 
 	if fs.NArg() != 2 {
-		fmt.Fprintln(os.Stderr, "Usage: kitcat mv <source> <destination>")
+		fmt.Fprintf(os.Stderr, "Usage: %s mv <source> <destination>\n", app.Name)
 		os.Exit(exitUsage)
 	}
 

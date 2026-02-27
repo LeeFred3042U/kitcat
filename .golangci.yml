@@ -8,6 +8,4 @@ linters-settings:
   revive:
     rules:
       - name: exported
-        arguments:
-          - disableStuttering: true
       - name: comment-spacings # Enforces space after //

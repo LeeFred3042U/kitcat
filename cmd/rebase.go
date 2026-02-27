@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
 func handleRebase(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: kitcat rebase <branch> [-i | --abort | --continue]")
+		fmt.Fprintf(os.Stderr, "Usage: %s rebase <branch> [-i | --abort | --continue]\n", app.Name)
 		os.Exit(exitUsage)
 	}
 

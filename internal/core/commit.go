@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
@@ -86,7 +87,7 @@ func Commit(message string) (string, error) {
 	if email == "" { email = "unknown@example.com" }
 	authorStr := fmt.Sprintf("%s <%s>", name, email)
 
-	treeHash, err := plumbing.WriteTree(storage.IndexPath)
+	treeHash, err := plumbing.WriteTree(repo.IndexPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to write tree: %w", err)
 	}
@@ -151,7 +152,7 @@ func AmendCommit(message string) (string, error) {
 		message = head.Message
 	}
 
-	treeHash, err := plumbing.WriteTree(storage.IndexPath)
+	treeHash, err := plumbing.WriteTree(repo.IndexPath)
 	if err != nil {
 		return "", err
 	}

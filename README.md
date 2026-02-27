@@ -15,9 +15,9 @@ Get `kitcat` up and running on your local machine:
 
 ```bash
 # Clone and build
-git clone [https://github.com/LeeFred3042U/kitcat.git](https://github.com/LeeFred3042U/kitcat.git)
+git clone https://github.com/LeeFred3042U/kitcat.git
 cd kitcat
-go build -o kitcat ./cmd
+go build -o kitcat ./cmd/main.go
 ```
 
 ### 2. First-Time Configuration
@@ -53,12 +53,12 @@ kitcat implements a functional subset of Git's "Plumbing" and "Porcelain" comman
 > [!IMPORTANT]
 > **A Note on Flags:** kitcat implements a **strict subset of Git flags**. For example, we support `commit -m` but **not** flags like `--author`, `--date`, or others. This restricted flag support applies to all commands across the project.
 
-| Feature            | Supported                 | Not Supported                           |
-| :----------------- | :------------------------ | :-------------------------------------- |
-| **Local Workflow** | Init, Add, Commit, Status | Staging specific hunks, Interactive add |
-| **History**        | Log, Branching, Checkout  | Rebase, Cherry-pick, Reflog             |
-| **Merging**        | Fast-Forward (FF) Only    | Merge conflict resolution, 3-way merges |
-| **Collaboration**  | Local directory only      | Remotes (Push, Pull, Fetch, Remote)     |
+| Feature            | Supported                                       | Not Supported                           |
+| :----------------- | :---------------------------------------------- | :-------------------------------------- |
+| **Local Workflow** | Init, Add, Commit, Status                       | Staging specific hunks, Interactive add |
+| **History**        | Log, Branching, Checkout, Rebase (Experimental) | Cherry-pick, Reflog                     |
+| **Merging**        | Fast-Forward (FF) Only                          | Merge conflict resolution, 3-way merges |
+| **Collaboration**  | Local directory only                            | Remotes (Push, Pull, Fetch, Remote)     |
 
 ---
 
@@ -77,7 +77,7 @@ kitcat implements a functional subset of Git's "Plumbing" and "Porcelain" comman
 | `merge`    | Join histories (**FF-only**).        | `./kitcat merge feature`       |
 | `clean`    | Remove untracked files.              | `./kitcat clean -f`            |
 | `config`   | Set user name and email.             | `./kitcat config --global ...` |
-
+|____________|______________________________________|________________________________|
 ---
 
 ## Key Features & Usage
@@ -112,10 +112,13 @@ Please read our **[CONTRIBUTING.md](./CONTRIBUTING.md)** for developer setup, co
 
 ## Reference Material
 
+<<<<<<< HEAD
 To understand how kitcat maps to the original Git design philosophy, refer to the "OG" technical documentation:
+=======
+Refer to the official Git documentation, to understand how git commands work:
+>>>>>>> main
 
-- **[Git Technical Documentation](https://github.com/git/git/blob/master/Documentation/technical/index.txt)**
-- **[Git: The Information Manager from Hell](https://github.com/git/git/blob/master/Documentation/RelNotes/0.99.txt)**
+- [Git Documentation (Official)](https://git-scm.com/docs/git)
 
 ---
 

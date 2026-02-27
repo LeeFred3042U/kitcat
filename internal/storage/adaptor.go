@@ -3,8 +3,8 @@ package storage
 import (
 	"compress/zlib"
 	"path/filepath"
-	"strings"
 	"strconv"
+	"strings"
 	"errors"
 	"bytes"
 	"time"
@@ -14,10 +14,8 @@ import (
 
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
-
-// ObjectsDir defines the root directory for all stored objects.
-const ObjectsDir = ".kitcat/objects"
 
 var ErrNoCommits = errors.New("no commits found")
 
@@ -27,7 +25,7 @@ func ReadObject(hash string) ([]byte, error) {
 	if len(hash) < 2 {
 		return nil, fmt.Errorf("invalid hash: %s", hash)
 	}
-	path := filepath.Join(ObjectsDir, hash[:2], hash[2:])
+	path := filepath.Join(repo.ObjectsDir, hash[:2], hash[2:])
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -56,7 +54,7 @@ func ReadObject(hash string) ([]byte, error) {
 
 // GetRef reads the content of a reference file and trims whitespace.
 func GetRef(name string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(".kitcat", name))
+	b, err := os.ReadFile(filepath.Join(repo.Dir, name))
 	return strings.TrimSpace(string(b)), err
 }
 
@@ -97,7 +95,7 @@ func ReadCommits() ([]models.Commit, error) {
 
 // GetLastCommit resolves HEAD to a commit hash, supporting symbolic refs.
 func GetLastCommit() (models.Commit, error) {
-	head, err := os.ReadFile(".kitcat/HEAD")
+	head, err := os.ReadFile(repo.HeadPath)
 	if os.IsNotExist(err) {
 		return models.Commit{}, ErrNoCommits
 	}
@@ -110,7 +108,7 @@ func GetLastCommit() (models.Commit, error) {
 	// Resolve symbolic refs like "ref: refs/heads/main".
 	if strings.HasPrefix(ref, "ref: ") {
 		ref = strings.TrimPrefix(ref, "ref: ")
-		data, err := os.ReadFile(".kitcat/" + ref)
+		data, err := os.ReadFile(filepath.Join(repo.Dir, ref))
 		if err != nil {
 			return models.Commit{}, ErrNoCommits
 		}

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // Init bootstraps the minimal kitcat repository layout.
@@ -19,15 +19,15 @@ import (
 func Init() error {
 	// Core repository directories required for objects, refs and hooks.
 	dirs := []string{
-		constant.RepoDir,
-		filepath.Join(constant.RepoDir, "hooks"),
-		filepath.Join(constant.RepoDir, "info"),
-		filepath.Join(constant.RepoDir, "objects"),
-		filepath.Join(constant.RepoDir, "objects", "info"),
-		filepath.Join(constant.RepoDir, "objects", "pack"),
-		filepath.Join(constant.RepoDir, "refs"),
-		filepath.Join(constant.RepoDir, "refs", "heads"),
-		filepath.Join(constant.RepoDir, "refs", "tags"),
+		repo.Dir,
+		filepath.Join(repo.Dir, "hooks"),
+		filepath.Join(repo.Dir, "info"),
+		filepath.Join(repo.Dir, "objects"),
+		filepath.Join(repo.Dir, "objects", "info"),
+		filepath.Join(repo.Dir, "objects", "pack"),
+		filepath.Join(repo.Dir, "refs"),
+		filepath.Join(repo.Dir, "refs", "heads"),
+		filepath.Join(repo.Dir, "refs", "tags"),
 	}
 
 	for _, dir := range dirs {
@@ -40,7 +40,7 @@ func Init() error {
 	// the active branch on repeated init calls.
 	// Initialize HEAD only if missing to avoid resetting
 	// the active branch on repeated init calls.
-	headPath := filepath.Join(constant.RepoDir, "HEAD")
+	headPath := filepath.Join(repo.Dir, "HEAD")
 	if _, err := os.Stat(headPath); os.IsNotExist(err) {
 		// FIXED: Default new repositories to 'main' instead of 'master'
 		headContent := []byte("ref: refs/heads/main\n")
@@ -51,7 +51,7 @@ func Init() error {
 
 	// Create an empty config file so later commands can
 	// safely append settings without checking existence.
-	configPath := filepath.Join(constant.RepoDir, "config")
+	configPath := filepath.Join(repo.Dir, "config")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if err := os.WriteFile(configPath, []byte(""), 0o644); err != nil {
 			return fmt.Errorf("failed to create config: %w", err)
@@ -59,7 +59,7 @@ func Init() error {
 	}
 
 	// Description is informational only; defaults are safe.
-	descPath := filepath.Join(constant.RepoDir, "description")
+	descPath := filepath.Join(repo.Dir, "description")
 	if _, err := os.Stat(descPath); os.IsNotExist(err) {
 		if err := os.WriteFile(descPath, []byte("Unnamed kitcat repository\n"), 0o644); err != nil {
 			return fmt.Errorf("failed to create description: %w", err)
@@ -68,7 +68,7 @@ func Init() error {
 
 	// Local exclude rules behave like Git's info/exclude:
 	// repo-specific ignores that are not tracked.
-	excludePath := filepath.Join(constant.RepoDir, "info", "exclude")
+	excludePath := filepath.Join(repo.Dir, "info", "exclude")
 	if _, err := os.Stat(excludePath); os.IsNotExist(err) {
 		excludeContent := []byte(
 			"# kitcat local exclude rules\n" +
@@ -88,7 +88,7 @@ func Init() error {
 	}
 
 	for name, content := range hooks {
-		hookPath := filepath.Join(constant.RepoDir, "hooks", name)
+		hookPath := filepath.Join(repo.Dir, "hooks", name)
 		if _, err := os.Stat(hookPath); os.IsNotExist(err) {
 			if err := os.WriteFile(hookPath, []byte(content), 0o755); err != nil {
 				return fmt.Errorf("failed to create hook %s: %w", name, err)

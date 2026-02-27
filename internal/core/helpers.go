@@ -15,7 +15,7 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.
@@ -29,7 +29,7 @@ func CaptureViaEditor(filename, initialContent string) (string, error) {
 		editor = "vi" // Fallback to vi, standard Unix behavior
 	}
 
-	msgFilePath := filepath.Join(constant.RepoDir, filename)
+	msgFilePath := filepath.Join(repo.Dir, filename)
 	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0644); err != nil {
 		return "", err
 	}
@@ -78,12 +78,12 @@ func FindRepoRoot() (string, error) {
 
 	dir := absCwd
 	for {
-		if _, err := os.Stat(filepath.Join(dir, constant.RepoDir)); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, repo.Dir)); err == nil {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("not a kitcat repository (or any of the parent directories): %s", constant.RepoDir)
+			return "", fmt.Errorf("not a kitcat repository (or any of the parent directories): %s", repo.Dir)
 		}
 		dir = parent
 	}
@@ -250,7 +250,7 @@ func IsWorkDirDirty() (bool, error) {
 		cleanPath := filepath.Clean(path)
 
 		// Skip repo metadata directory.
-		if info.IsDir() || strings.HasPrefix(cleanPath, constant.RepoDir+string(os.PathSeparator)) || cleanPath == constant.RepoDir {
+		if info.IsDir() || strings.HasPrefix(cleanPath, repo.Dir+string(os.PathSeparator)) || cleanPath == repo.Dir {
 			return nil
 		}
 
@@ -284,7 +284,7 @@ func IsWorkDirDirty() (bool, error) {
 // UpdateBranchPointer updates either the branch reference or HEAD itself.
 // Uses SafeWrite to avoid partial writes during ref updates.
 func UpdateBranchPointer(commitHash string) error {
-	headData, err := os.ReadFile(constant.HeadPath)
+	headData, err := os.ReadFile(repo.HeadPath)
 	if err != nil {
 		return fmt.Errorf("unable to read HEAD file: %w", err)
 	}
@@ -299,7 +299,7 @@ func UpdateBranchPointer(commitHash string) error {
 		return nil
 	}
 
-	if err := SafeWrite(constant.HeadPath, []byte(commitHash), 0644); err != nil {
+	if err := SafeWrite(repo.HeadPath, []byte(commitHash), 0644); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
 	return nil
@@ -307,7 +307,7 @@ func UpdateBranchPointer(commitHash string) error {
 
 // readHead resolves HEAD to a commit hash, following symbolic refs.
 func readHead() (string, error) {
-	headData, err := os.ReadFile(constant.HeadPath)
+	headData, err := os.ReadFile(repo.HeadPath)
 	if err != nil {
 		return "", err
 	}

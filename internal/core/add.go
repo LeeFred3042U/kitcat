@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
 // AddFile stages a file or directory.
@@ -253,10 +253,10 @@ func shouldSkipDir(cleanPath string, patterns []IgnorePattern, proxyIndex map[st
 // isInternalDir checks if a path belongs to the kitcat metadata directory.
 // It effectively blocks ".kitcat" and ".kitcat/..."
 func isInternalDir(path string) bool {
-	if path == constant.RepoDir {
+	if path == repo.Dir {
 		return true
 	}
 	// Separator-aware prefix check avoids false positives like ".kitcat_backup".
-	prefix := constant.RepoDir + string(os.PathSeparator)
+	prefix := repo.Dir + string(os.PathSeparator)
 	return strings.HasPrefix(path, prefix)
 }

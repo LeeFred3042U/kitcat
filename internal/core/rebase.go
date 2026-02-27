@@ -10,7 +10,7 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // RebaseAbort cancels an active rebase, restores the original HEAD, 
@@ -51,7 +51,7 @@ func RebaseContinue() error {
 	}
 
 	// 1. PREFLIGHT: Check if we are resuming from a paused conflict
-	stoppedShaPath := filepath.Join(constant.RepoDir, "rebase-merge", "stopped-sha")
+	stoppedShaPath := filepath.Join(repo.Dir, "rebase-merge", "stopped-sha")
 	if stoppedHashBytes, err := os.ReadFile(stoppedShaPath); err == nil {
 		// We are resuming! Check if the user actually resolved the conflicts in the index.
 		index, _ := storage.LoadIndex()
@@ -149,7 +149,7 @@ func RebaseContinue() error {
 // It bypasses the standard Commit function to preserve the original Author
 // and ensure single-parent ancestry (no accidental merge commits!).
 func commitRebaseStep(original models.Commit) (string, error) {
-	treeHash, err := plumbing.WriteTree(storage.IndexPath)
+	treeHash, err := plumbing.WriteTree(repo.IndexPath)
 	if err != nil {
 		return "", err
 	}

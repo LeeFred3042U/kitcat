@@ -6,12 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/app"
 )
 
 func handleLink(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s link <new-name>\n", constant.AppName)
+		fmt.Fprintf(os.Stderr, "Usage: %s link <new-name>\n", app.Name)
 		os.Exit(exitUsage)
 	}
 
@@ -51,6 +51,6 @@ func handleLink(args []string) {
 		}
 	}
 
-	fmt.Printf("Successfully linked '%s' to %s!\n", newName, constant.AppName)
-	fmt.Printf("You can now use '%s' instead of '%s'.\n", newName, constant.AppName)
+	fmt.Printf("Successfully linked '%s' to %s!\n", newName, app.Name)
+	fmt.Printf("You can now use '%s' instead of '%s'.\n", newName, app.Name)
 }

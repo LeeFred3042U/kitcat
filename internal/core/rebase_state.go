@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 	
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // RebaseState holds the on-disk representation of a rebase in progress.
@@ -23,7 +23,7 @@ type RebaseState struct {
 
 // EnsureRebaseDir creates the rebase-merge directory if it does not exist.
 func EnsureRebaseDir() error {
-	path := filepath.Join(constant.RepoDir, "rebase-merge")
+	path := filepath.Join(repo.Dir, "rebase-merge")
 	return os.MkdirAll(path, 0755)
 }
 
@@ -33,7 +33,7 @@ func SaveRebaseState(state RebaseState) error {
 	if err := EnsureRebaseDir(); err != nil {
 		return err
 	}
-	base := filepath.Join(constant.RepoDir, "rebase-merge")
+	base := filepath.Join(repo.Dir, "rebase-merge")
 
 	// Helper to write files and check errors immediately.
 	write := func(filename, content string) error {
@@ -71,7 +71,7 @@ func SaveRebaseState(state RebaseState) error {
 // LoadRebaseState reconstructs RebaseState from files under .kitcat/rebase-merge.
 // Missing directory yields an error indicating no rebase is in progress.
 func LoadRebaseState() (*RebaseState, error) {
-	base := filepath.Join(constant.RepoDir, "rebase-merge")
+	base := filepath.Join(repo.Dir, "rebase-merge")
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no rebase in progress")
 	}
@@ -107,13 +107,13 @@ func LoadRebaseState() (*RebaseState, error) {
 
 // IsRebaseInProgress returns true if the rebase-merge directory exists.
 func IsRebaseInProgress() bool {
-	_, err := os.Stat(filepath.Join(constant.RepoDir, "rebase-merge"))
+	_, err := os.Stat(filepath.Join(repo.Dir, "rebase-merge"))
 	return err == nil
 }
 
 // ClearRebaseState removes the rebase-merge directory and all its files.
 func ClearRebaseState() error {
-	return os.RemoveAll(filepath.Join(constant.RepoDir, "rebase-merge"))
+	return os.RemoveAll(filepath.Join(repo.Dir, "rebase-merge"))
 }
 
 // ReadNextTodo returns the next todo command and the loaded state.

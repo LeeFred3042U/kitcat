@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -6,11 +5,12 @@ import (
 	"os"
 
 	"github.com/LeeFred3042U/kitcat/internal/core"
+	"github.com/LeeFred3042U/kitcat/internal/app"
 )
 
 func handleAdd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: kitcat add <pathspec>...")
+		fmt.Fprintf(os.Stderr, "Usage: %s add <pathspec>...\n", app.Name)
 		os.Exit(exitUsage)
 	}
 

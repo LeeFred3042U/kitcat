@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/LeeFred3042U/kitcat/internal/core"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 func handleCommit(args []string) {
@@ -84,7 +84,7 @@ func captureMessageViaEditor() (string, error) {
 		editor = "vi" // Fallback to vi, standard Unix behavior
 	}
 
-	msgFilePath := filepath.Join(constant.RepoDir, "COMMIT_EDITMSG")
+	msgFilePath := filepath.Join(repo.Dir, "COMMIT_EDITMSG")
 	initialContent := "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored, and an empty message aborts the commit.\n"
 	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0644); err != nil {
 		return "", err

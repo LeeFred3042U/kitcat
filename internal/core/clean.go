@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
 )
 
 // Clean removes untracked files and directories from the working directory.
@@ -37,7 +37,7 @@ func Clean(dryRun, removeDirs, removeIgnored, onlyIgnored bool) error {
 		cleanPath := filepath.Clean(path)
 
 		// Never touch the repository metadata
-		if cleanPath == constant.RepoDir || strings.HasPrefix(cleanPath, constant.RepoDir+string(os.PathSeparator)) {
+		if cleanPath == repo.Dir || strings.HasPrefix(cleanPath, repo.Dir+string(os.PathSeparator)) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}

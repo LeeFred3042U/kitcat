@@ -20,6 +20,10 @@ func getConfigPath(global bool) string {
 
 // SetConfig updates or appends a key-value pair atomically.
 func SetConfig(key, value string, global bool) error {
+	if !strings.Contains(key, ".") {
+		return fmt.Errorf("error: key does not contain a section: %s", key)
+	}
+
 	path := getConfigPath(global)
 	data, _ := os.ReadFile(path)
 	

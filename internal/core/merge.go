@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/merge"
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
@@ -16,7 +16,7 @@ import (
 // It supports fast-forward and 3-way merges.
 func Merge(branchToMerge string) error {
 	// Ensure we are inside a repository before performing destructive operations.
-	if _, err := os.Stat(constant.RepoDir); os.IsNotExist(err) {
+	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
 		return errors.New("not a kitcat repository (run `kitcat init`)")
 	}
 
@@ -30,7 +30,7 @@ func Merge(branchToMerge string) error {
 	}
 
 	// Resolve target branch head.
-	branchPath := filepath.Join(constant.HeadsDir, branchToMerge)
+	branchPath := filepath.Join(repo.HeadsDir, branchToMerge)
 	featureHeadHashBytes, err := os.ReadFile(branchPath)
 	if err != nil {
 		return fmt.Errorf("branch '%s' not found", branchToMerge)

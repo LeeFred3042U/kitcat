@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
@@ -17,7 +18,7 @@ func handleBranch(args []string) {
 
 	if args[0] == "-d" || args[0] == "--delete" {
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: kitcat branch -d <branchname>")
+			fmt.Fprintf(os.Stderr, "Usage: %s branch -d <branchname>\n", app.Name)
 			os.Exit(exitUsage)
 		}
 		if err := core.DeleteBranch(args[1]); err != nil {
@@ -29,7 +30,7 @@ func handleBranch(args []string) {
 
 	if args[0] == "-m" || args[0] == "--move" {
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "Usage: kitcat branch -m <newname>")
+			fmt.Fprintf(os.Stderr, "Usage: %s branch -m <newname>\n", app.Name)
 			os.Exit(exitUsage)
 		}
 		if err := core.RenameCurrentBranch(args[1]); err != nil {

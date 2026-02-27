@@ -1,12 +1,13 @@
 package core
 
 import (
-	"text/template"
-	"strings"
-	"sort"
 	"fmt"
+	"sort"
+	"strings"
+	"text/template"
 
-	"github.com/LeeFred3042U/kitcat/internal/constant"
+	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 // CommandHelp holds summary and usage text for a CLI command.
@@ -82,8 +83,8 @@ var helpMessages = map[string]CommandHelp{
 
 // templateData is passed into templates.
 var templateData = map[string]string{
-	"APP": constant.AppName,
-	"DIR": constant.RepoDir,
+	"APP": app.Name,
+	"DIR": repo.Dir,
 }
 
 // renderTemplate parses and prints a template string.
@@ -100,8 +101,8 @@ func renderTemplate(text string) string {
 
 // PrintGeneralHelp lists all commands.
 func PrintGeneralHelp() {
-	fmt.Printf("usage: %s <command> [arguments]\n", constant.AppName)
-	fmt.Printf("\nThese are the common %s commands:\n", constant.AppName)
+	fmt.Printf("usage: %s <command> [arguments]\n", app.Name)
+	fmt.Printf("\nThese are the common %s commands:\n", app.Name)
 
 	// Stable order (maps are random)
 	var keys []string
@@ -116,7 +117,7 @@ func PrintGeneralHelp() {
 		fmt.Printf("   %-12s %s\n", name, summary)
 	}
 
-	fmt.Printf("\nUse '%s help <command>' for more information about a command\n", constant.AppName)
+	fmt.Printf("\nUse '%s help <command>' for more information about a command\n", app.Name)
 }
 
 // PrintCommandHelp prints detailed usage.
@@ -126,5 +127,5 @@ func PrintCommandHelp(command string) {
 		return
 	}
 
-	fmt.Printf("Unknown help topic: '%s'. See '%s --help'.\n", command, constant.AppName)
+	fmt.Printf("Unknown help topic: '%s'. See '%s --help'.\n", command, app.Name)
 }

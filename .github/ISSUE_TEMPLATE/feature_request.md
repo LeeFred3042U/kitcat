@@ -1,31 +1,64 @@
 ---
-name: Feature Request / Task
-about: Suggest a new idea or claim a coding task (Track 1 & 3)
-title: "feat: "
-labels: enhancement
+name: Feature Request
+about: Propose a new feature with clear scope and constraints
+title: "[FEATURE] "
+labels: feature
 assignees: ""
 ---
 
-### Objective
+## Problem Statement
 
-### Detailed Implementation Steps
+What problem does this feature solve?
+If this is “nice to have” or cosmetic, say so explicitly.
 
-1.
-2.
-3.
+---
 
-### Files to Modify
+## Proposed Behavior
 
-- `internal/core/...`
-- `cmd/main.go`
+Describe the feature in concrete, user-visible terms.
+CLI syntax, flags, output, error cases.
 
-### Acceptance Criteria
+No mockups? Fine. No ambiguity? Required.
 
-- [ ] Command `kitkat ...` works as expected.
-- [ ] `kitkat log` / `status` shows correct output.
-- [ ] Edge cases (like missing files) are handled.
+---
 
-### Track Selection
+## Non-Goals
 
-- [ ] Track 1: Beginner Code
-- [ ] Track 3: Systems Engineering
+Explicitly list what this feature will **not** do.
+This prevents scope creep and contributor fantasy.
+
+---
+
+## Impact / Risk
+
+- Backward compatibility concerns
+- Performance implications
+- UX or behavioral changes
+
+If there is no risk, justify why.
+
+---
+
+## Technical Constraints
+
+List anything that must not change.
+Examples:
+- Public APIs
+- Storage format
+- Existing command semantics
+
+---
+
+## Suggested Implementation (Optional)
+
+High-level approach only.
+No bikeshedding, no premature abstractions.
+
+---
+
+## Acceptance Criteria
+
+Clear, testable outcomes.
+Example:
+- Command `kitcat foo --bar` behaves as described
+- Existing commands remain unchanged

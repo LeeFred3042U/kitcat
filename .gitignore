@@ -26,13 +26,15 @@
 
 # Personal/text files
 hello.txt
-test_kitkat.sh
-kitkat_test_repo
+:est_kitcat.sh
+kitcat_test_repo
 .kitignore
 
 dump_code.sh
-kitkat_project_code.txt
-kitkat
+kitcat_project_code.txt
+kitcat
+.kitcat
+kitkat 
 
 .kitkat
 kitcat_bin
@@ -43,3 +45,4 @@ dump.sh
 kitcat
 dump.sh
 verify
+dump.sh

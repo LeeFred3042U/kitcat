@@ -210,6 +210,12 @@ var commands = map[string]CommandFunc{
 		}
 	},
 	"status": func(args []string) {
+
+		if !core.IsRepoInitialized() {
+			fmt.Println("Error: not a kitcat repository (or any of the parent directories): .kitcat")
+			os.Exit(1)
+		}
+
 		if err := core.Status(); err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)

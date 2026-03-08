@@ -1,7 +1,7 @@
 // Package diff provides an implementation of the Myers diff algorithm.
-// It is designed to find the shortest edit script (a sequence of insertions
-// and deletions) to transform one sequence into another. This implementation
-// is generic and can work with slices of any comparable type.
+// It computes the shortest edit script (SES) that transforms one sequence
+// into another using insertions and deletions. The implementation is generic
+// and operates on slices of any comparable type.
 package diff
 
 import (
@@ -9,19 +9,25 @@ import (
 	"strings"
 )
 
-// Operation defines the type of diff operation.
+// Operation identifies the type of diff operation produced by the algorithm.
+//
+// Each operation describes how a segment of the sequence changed relative
+// to the original input.
 type Operation int8
 
 const (
-	// EQUAL indicates that the text is the same in both sequences.
+	// EQUAL indicates that the elements are identical in both sequences.
 	EQUAL Operation = 0
-	// INSERT indicates that the text was inserted in the new sequence.
+
+	// INSERT indicates elements present only in the new sequence.
 	INSERT Operation = 1
-	// DELETE indicates that the text was deleted from the old sequence.
+
+	// DELETE indicates elements removed from the original sequence.
 	DELETE Operation = 2
 )
 
-// op2chr converts an Operation to its character representation for display.
+// op2chr converts an Operation into a single-character representation.
+// This is primarily used when producing human-readable diff output.
 func op2chr(op Operation) rune {
 	switch op {
 	case DELETE:
@@ -35,31 +41,38 @@ func op2chr(op Operation) rune {
 	}
 }
 
-// Diff represents a single diff operation, containing the type of operation
-// and the sequence of elements it affects.
+// Diff represents a single diff operation produced by the algorithm.
+//
+// Operation describes the type of change, while Text contains the
+// sequence elements affected by the operation.
 type Diff[T comparable] struct {
 	Operation Operation
 	Text      []T
 }
 
-// String returns a human-readable string representation of the Diff.
+// String returns a human-readable representation of the diff operation.
+// It prefixes the operation symbol followed by the affected sequence.
 func (d Diff[T]) String() string {
 	var builder strings.Builder
 	builder.WriteRune(op2chr(d.Operation))
 	builder.WriteRune('\t')
-	// Using Sprintf to handle generic slice printing.
+	// fmt.Sprintf is used to print generic slices.
 	builder.WriteString(fmt.Sprintf("%v", d.Text))
 	return builder.String()
 }
 
-// MyersDiff is the main struct for performing the diff operation.
-// It holds the two sequences to be compared.
+// MyersDiff encapsulates the data required to perform a Myers diff
+// between two sequences.
+//
+// The algorithm computes the shortest edit script (SES) that transforms
+// text1 into text2.
 type MyersDiff[T comparable] struct {
 	text1 []T
 	text2 []T
 }
 
-// NewMyersDiff creates a new MyersDiff instance with the provided sequences.
+// NewMyersDiff constructs a new MyersDiff instance using the provided
+// sequences as the original and modified inputs.
 func NewMyersDiff[T comparable](text1, text2 []T) *MyersDiff[T] {
 	return &MyersDiff[T]{
 		text1: text1,
@@ -67,18 +80,19 @@ func NewMyersDiff[T comparable](text1, text2 []T) *MyersDiff[T] {
 	}
 }
 
-// Diffs computes and returns the differences between the two texts.
-// This is the primary public method to get the diff result.
+// Diffs executes the Myers diff algorithm and returns the sequence of
+// operations required to transform text1 into text2.
 func (md *MyersDiff[T]) Diffs() []Diff[T] {
 	return md.diffMain(md.text1, md.text2)
 }
 
-// DiffLines is an optimized helper for diffing slice of strings (lines).
-// It maps strings to unique integer IDs (hashing) before running the Myers algorithm.
-// This significantly speeds up comparisons for long lines or large files.
-// Implements the optimization TODO: mapping lines/blocks to hashes.
+// DiffLines is a convenience helper for diffing slices of strings.
+//
+// To improve performance for large inputs, it interns strings into
+// integer identifiers before running the Myers algorithm. The diff is
+// then reconstructed back into string form after computation.
 func DiffLines(lines1, lines2 []string) []Diff[string] {
-	// 1. Intern strings to IDs (Map string -> int)
+	// Intern strings to integer IDs.
 	table := make(map[string]int)
 	var reverseTable []string
 
@@ -97,16 +111,17 @@ func DiffLines(lines1, lines2 []string) []Diff[string] {
 	for i, s := range lines1 {
 		ids1[i] = intern(s)
 	}
+
 	ids2 := make([]int, len(lines2))
 	for i, s := range lines2 {
 		ids2[i] = intern(s)
 	}
 
-	// 2. Run Myers Diff on Integers (Fast)
+	// Run Myers diff on integer sequences.
 	md := NewMyersDiff(ids1, ids2)
 	intDiffs := md.Diffs()
 
-	// 3. Reconstruct []Diff[string] from []Diff[int]
+	// Reconstruct string diffs from integer IDs.
 	res := make([]Diff[string], len(intDiffs))
 	for i, d := range intDiffs {
 		res[i].Operation = d.Operation
@@ -119,9 +134,11 @@ func DiffLines(lines1, lines2 []string) []Diff[string] {
 	return res
 }
 
-// diffMain is the core function that orchestrates the diffing process.
-// It trims common prefixes and suffixes before computing the diff on the
-// remaining parts, which is a key optimization.
+// diffMain coordinates the diffing process.
+//
+// It trims common prefixes and suffixes before running the main algorithm
+// on the remaining middle section. This optimization reduces the search
+// space and improves performance.
 func (md *MyersDiff[T]) diffMain(text1, text2 []T) []Diff[T] {
 	// Trim common prefix.
 	commonLength := md.diffCommonPrefix(text1, text2)
@@ -135,11 +152,10 @@ func (md *MyersDiff[T]) diffMain(text1, text2 []T) []Diff[T] {
 	text1 = text1[:len(text1)-commonLength]
 	text2 = text2[:len(text2)-commonLength]
 
-	// Compute the diff on the middle block.
+	// Compute diff for the remaining middle block.
 	diffs := md.diffCompute(text1, text2)
 
-	// Restore the prefix and suffix by prepending and appending
-	// an EQUAL diff operation for the common parts.
+	// Restore trimmed prefix and suffix as EQUAL operations.
 	if len(commonPrefix) > 0 {
 		diffs = append([]Diff[T]{{EQUAL, commonPrefix}}, diffs...)
 	}
@@ -150,27 +166,26 @@ func (md *MyersDiff[T]) diffMain(text1, text2 []T) []Diff[T] {
 	return diffs
 }
 
-// diffCompute handles the main diff computation after stripping common parts.
-// It contains fast-path checks for empty sequences.
+// diffCompute performs the main diff computation after prefix/suffix
+// trimming. It handles trivial cases before delegating to diffBisect.
 func (md *MyersDiff[T]) diffCompute(text1, text2 []T) []Diff[T] {
-	// If one of the texts is empty, the diff is a simple insertion or deletion.
 	if len(text1) == 0 {
 		if len(text2) == 0 {
 			return []Diff[T]{}
 		}
 		return []Diff[T]{{INSERT, text2}}
 	}
+
 	if len(text2) == 0 {
 		return []Diff[T]{{DELETE, text1}}
 	}
 
-	// The core of the algorithm for non-trivial cases.
 	return md.diffBisect(text1, text2)
 }
 
-// diffBisect finds the 'middle snake' of a diff and recursively constructs the diff.
-// This is an optimization of the Myers algorithm that reduces the problem space.
-// See Myers' 1986 paper: "An O(ND) Difference Algorithm and Its Variations."
+// diffBisect implements Myers' divide-and-conquer algorithm to find the
+// middle "snake" (longest diagonal match). The problem is split around
+// this midpoint and solved recursively.
 func (md *MyersDiff[T]) diffBisect(text1, text2 []T) []Diff[T] {
 	text1Length, text2Length := len(text1), len(text2)
 	maxD := (text1Length + text2Length + 1) / 2
@@ -179,74 +194,77 @@ func (md *MyersDiff[T]) diffBisect(text1, text2 []T) []Diff[T] {
 
 	v1 := make([]int, vLength)
 	v2 := make([]int, vLength)
+
 	for i := range v1 {
 		v1[i] = -1
 		v2[i] = -1
 	}
+
 	v1[vOffset+1] = 0
 	v2[vOffset+1] = 0
 
 	delta := text1Length - text2Length
-	// If the total number of characters is odd, the front path will collide with the reverse path.
 	front := (delta%2 != 0)
 
-	// The main loop of the bisection algorithm. It extends paths from both
-	// the start and the end of the sequences, looking for an overlap.
 	for d := 0; d < maxD; d++ {
-		// Walk the front path one step.
+
+		// Forward search.
 		for k1 := -d; k1 <= d; k1 += 2 {
 			k1Offset := vOffset + k1
-			x1 := 0
+
+			var x1 int
 			if k1 == -d || (k1 != d && v1[k1Offset-1] < v1[k1Offset+1]) {
 				x1 = v1[k1Offset+1]
 			} else {
 				x1 = v1[k1Offset-1] + 1
 			}
+
 			y1 := x1 - k1
-			// Continue along diagonals (matches).
+
 			for x1 < text1Length && y1 < text2Length && text1[x1] == text2[y1] {
 				x1++
 				y1++
 			}
+
 			v1[k1Offset] = x1
 
-			// Check for overlap with the reverse path.
 			if front {
 				k2Offset := vOffset + delta - k1
 				if k2Offset >= 0 && k2Offset < vLength && v2[k2Offset] != -1 {
 					x2 := text1Length - v2[k2Offset]
 					if x1 >= x2 {
-						// Overlap detected, split the problem.
 						return md.diffBisectSplit(text1, text2, x1, y1)
 					}
 				}
 			}
 		}
 
-		// Walk the reverse path one step.
+		// Reverse search.
 		for k2 := -d; k2 <= d; k2 += 2 {
 			k2Offset := vOffset + k2
-			x2 := 0
+
+			var x2 int
 			if k2 == -d || (k2 != d && v2[k2Offset-1] < v2[k2Offset+1]) {
 				x2 = v2[k2Offset+1]
 			} else {
 				x2 = v2[k2Offset-1] + 1
 			}
+
 			y2 := x2 - k2
-			// Continue along diagonals (matches) in reverse.
-			for x2 < text1Length && y2 < text2Length && text1[text1Length-x2-1] == text2[text2Length-y2-1] {
+
+			for x2 < text1Length && y2 < text2Length &&
+				text1[text1Length-x2-1] == text2[text2Length-y2-1] {
 				x2++
 				y2++
 			}
+
 			v2[k2Offset] = x2
 
-			// Check for overlap with the front path.
 			if !front {
 				k1Offset := vOffset + delta - k2
 				if k1Offset >= 0 && k1Offset < vLength && v1[k1Offset] != -1 {
 					x1 := v1[k1Offset]
 					if x1 >= text1Length-x2 {
-						// Overlap detected, split the problem.
 						return md.diffBisectSplit(text1, text2, x1, vOffset+x1-k1Offset)
 					}
 				}
@@ -254,27 +272,24 @@ func (md *MyersDiff[T]) diffBisect(text1, text2 []T) []Diff[T] {
 		}
 	}
 
-	// Fallback for cases where no commonality is found.
 	return []Diff[T]{{DELETE, text1}, {INSERT, text2}}
 }
 
-// diffBisectSplit is called when an overlap is found in diffBisect.
-// It splits the problem at the overlap point and recursively calls diffMain
-// on the two sub-problems.
+// diffBisectSplit divides the diff problem at the detected midpoint
+// and recursively processes the two halves.
 func (md *MyersDiff[T]) diffBisectSplit(text1, text2 []T, x, y int) []Diff[T] {
 	text1a := text1[:x]
 	text2a := text2[:y]
 	text1b := text1[x:]
 	text2b := text2[y:]
 
-	// Compute both diffs serially and concatenate them.
 	diffs := md.diffMain(text1a, text2a)
 	diffs = append(diffs, md.diffMain(text1b, text2b)...)
 	return diffs
 }
 
-// diffCommonPrefix determines the common prefix of two sequences.
-// It returns the number of elements common to the start of each sequence.
+// diffCommonPrefix returns the length of the shared prefix between
+// two sequences.
 func (md *MyersDiff[T]) diffCommonPrefix(text1, text2 []T) int {
 	n := min(len(text1), len(text2))
 	for i := 0; i < n; i++ {
@@ -285,11 +300,12 @@ func (md *MyersDiff[T]) diffCommonPrefix(text1, text2 []T) int {
 	return n
 }
 
-// diffCommonSuffix determines the common suffix of two sequences.
-// It returns the number of elements common to the end of each sequence.
+// diffCommonSuffix returns the length of the shared suffix between
+// two sequences.
 func (md *MyersDiff[T]) diffCommonSuffix(text1, text2 []T) int {
 	len1, len2 := len(text1), len(text2)
 	n := min(len1, len2)
+
 	for i := 1; i <= n; i++ {
 		if text1[len1-i] != text2[len2-i] {
 			return i - 1
@@ -298,7 +314,7 @@ func (md *MyersDiff[T]) diffCommonSuffix(text1, text2 []T) int {
 	return n
 }
 
-// min is a helper function to find the minimum of two integers.
+// min returns the smaller of two integers.
 func min(a, b int) int {
 	if a < b {
 		return a

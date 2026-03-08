@@ -31,15 +31,23 @@ import (
 	"os"
 )
 
-// ReadIndex parses a Git index file from disk and reconstructs
-// in-memory IndexEntry records from the binary format.
+// ReadIndex reads a Git index (DIRC) file from disk and reconstructs the
+// in-memory slice of IndexEntry records.
 //
-// Compatibility:
-//   - Supports Git Index Version 2 and 3.
-//   - Version 4 (prefix-compressed paths) is intentionally rejected.
-//   - Verifies SHA-1 checksum to prevent silent corruption.
-//   - Correctly consumes extended flags and padding to maintain alignment.
-//   - Safely skips unknown extension blocks.
+// The parser implements the Git index v2/v3 binary format and performs
+// several safety checks during decoding:
+//
+//   - Validates the index header signature.
+//   - Verifies the trailing SHA-1 checksum to detect corruption.
+//   - Rejects unsupported index versions.
+//   - Correctly consumes extended flag fields and padding.
+//   - Safely skips extension blocks that may appear before the checksum.
+//
+// Version compatibility:
+//   - Supported: v2 and v3
+//   - Rejected: v4 (path prefix compression not implemented)
+//
+// The returned slice preserves the entry order found in the index file.
 func ReadIndex(path string) ([]IndexEntry, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -50,13 +58,13 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 	}
 
 	// Minimum valid size:
-	// Header (12 bytes) + Checksum footer (20 bytes)
+	// Header (12 bytes) + checksum footer (20 bytes).
 	if len(data) < 32 {
 		return nil, errors.New("index file too small")
 	}
 
-	// Checksum Verification
-	// Git appends a SHA-1 checksum of the entire file (excluding the footer).
+	// Git stores a SHA-1 checksum of the entire index file (excluding
+	// the checksum itself) as the final 20 bytes.
 	toHash := data[:len(data)-20]
 	expectedSum := data[len(data)-20:]
 
@@ -65,16 +73,16 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		return nil, errors.New("index checksum mismatch: file corrupted or tampered")
 	}
 
-	// Parse Header
+	// Validate header signature.
 	if string(data[0:4]) != "DIRC" {
 		return nil, errors.New("invalid index signature")
 	}
 
 	version := binary.BigEndian.Uint32(data[4:8])
 
-	// Only V2 and V3 are supported.
-	// V4 introduces path compression which cannot be decoded safely
-	// without a dedicated implementation.
+	// Only versions 2 and 3 are supported.
+	// Version 4 introduces prefix-compressed paths which require a
+	// different decoding algorithm.
 	if version < 2 || version > 3 {
 		return nil, fmt.Errorf("unsupported index version %d (only v2/v3 supported)", version)
 	}
@@ -82,18 +90,18 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 	count := binary.BigEndian.Uint32(data[8:12])
 	entries := make([]IndexEntry, count)
 
-	offset := 12 // Start immediately after header
+	offset := 12 // Start immediately after the header.
 
-	// Parse Entries
+	// Parse index entries sequentially.
 	for i := 0; i < int(count); i++ {
-		// Ensure enough bytes remain for fixed-width metadata.
+		// Ensure enough bytes remain for the fixed-width portion.
 		if offset+62 > len(data) {
 			return nil, errors.New("unexpected EOF in index entries")
 		}
 
 		var e IndexEntry
 
-		// Stat metadata fields must be read in strict order.
+		// Read stat metadata fields in strict on-disk order.
 		e.CTimeSec = binary.BigEndian.Uint32(data[offset : offset+4])
 		e.CTimeNSec = binary.BigEndian.Uint32(data[offset+4 : offset+8])
 		e.MTimeSec = binary.BigEndian.Uint32(data[offset+8 : offset+12])
@@ -107,21 +115,19 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 
 		offset += 40
 
-		// Copy 20-byte object hash.
+		// Copy the 20-byte object ID.
 		copy(e.Hash[:], data[offset:offset+20])
 		offset += 20
 
-		// Flags contain stage bits and optional extended flag indicator.
+		// Flags contain the path length and stage bits.
 		flags := binary.BigEndian.Uint16(data[offset : offset+2])
 		offset += 2
 
-		// Extract merge stage (0–3).
+		// Extract merge stage (bits 12–13).
 		e.Stage = uint8((flags >> 12) & 0x3)
 
-
-		// Handle Extended Flags
-		// If bit 0x4000 is set, an additional 16-bit flag field follows.
-		// We ignore the contents but MUST consume it to maintain alignment.
+		// Extended flags indicator (bit 0x4000).
+		// If present, an additional 16-bit field follows.
 		if (flags & 0x4000) != 0 {
 			if offset+2 > len(data) {
 				return nil, errors.New("unexpected EOF reading extended flags")
@@ -129,8 +135,7 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 			offset += 2
 		}
 
-
-		// Parse Path (Null-terminated)
+		// Path is stored as a null-terminated string.
 		idx := bytes.IndexByte(data[offset:], 0)
 		if idx == -1 {
 			return nil, errors.New("malformed index: path not null-terminated")
@@ -139,18 +144,19 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		nameEnd := offset + idx
 		e.Path = string(data[offset:nameEnd])
 
-		// Move past the null byte.
+		// Advance past the null terminator.
 		offset = nameEnd + 1
 
-		// Handle Entry Padding
-		// Entry size must be aligned to an 8-byte boundary.
+		// Entries are padded with null bytes so that their total size
+		// aligns to an 8-byte boundary.
 		baseSize := 62
 		if (flags & 0x4000) != 0 {
-			baseSize += 2 // extended flag field
+			baseSize += 2
 		}
 
 		currentEntryLen := baseSize + len(e.Path) + 1
 		pad := 8 - (currentEntryLen % 8)
+
 		if pad != 8 {
 			if offset+pad > len(data) {
 				return nil, errors.New("malformed index: padding out of bounds")
@@ -161,25 +167,25 @@ func ReadIndex(path string) ([]IndexEntry, error) {
 		entries[i] = e
 	}
 
-	// Parse Extensions (Skip Safely)
-	// Extension blocks exist between entries and the checksum footer.
+	// Extension blocks may appear after entries but before the checksum.
+	// Unknown extensions are skipped safely by reading their declared size.
 	for offset < len(data)-20 {
 		if offset+8 > len(data)-20 {
-			break // Not enough space for a valid extension header
+			break
 		}
 
-		// Signature (ignored)
+		// Skip 4-byte extension signature.
 		offset += 4
 
-		// Size
+		// Read extension payload size.
 		extSize := binary.BigEndian.Uint32(data[offset : offset+4])
 		offset += 4
 
 		if offset+int(extSize) > len(data)-20 {
 			return nil, errors.New("malformed index extension size")
-				}
+		}
 
-		// Skip payload
+		// Skip extension payload.
 		offset += int(extSize)
 	}
 

@@ -6,61 +6,78 @@ import (
 	"path/filepath"
 )
 
-// SafeWriteFile writes data to a file atomically and durably.
-// It uses a temporary file, syncs it to disk, then atomically renames it.
-// The parent directory is also synced to ensure the rename is durable.
-func SafeWriteFile(filename string, data []byte, perm os.FileMode) error {
-	// Ensure the parent directory exists
+// SafeWriteFile writes data to a file atomically and with durability guarantees.
+//
+// The function ensures that readers of the target filename will never observe
+// partially written data. This is achieved by writing the contents to a temporary
+// file in the same directory and then atomically renaming it over the destination.
+//
+// Implementation guarantees:
+//   - Writes occur to a uniquely named temporary file to avoid writer collisions.
+//   - File contents are flushed to disk before rename to protect against power loss.
+//   - The rename operation replaces the target atomically on supported filesystems.
+//   - The parent directory is synced after rename to persist metadata changes.
+//
+// Platform behavior:
+//   - Relies on POSIX atomic rename semantics on Unix-like systems.
+//   - On Windows, the rename relies on the equivalent filesystem replace behavior.
+func SafeWriteFile(filename string, data []byte, perm os.FileMode) (err error) {
 	dir := filepath.Dir(filename)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
-	// Write to a temporary file in the same directory
-	tmpPath := filename + ".tmp"
-	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	// Use a unique temporary filename to avoid concurrent writer collisions.
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(filename)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
+	tmpPath := tmpFile.Name()
 
-	// Write data to temp file
-	_, writeErr := tmpFile.Write(data)
+	// Ensure no orphaned temp files remain if the write fails.
+	defer func() {
+		tmpFile.Close()
+		if err != nil {
+			os.Remove(tmpPath)
+		}
+	}()
 
-	// Sync the file to ensure data is flushed to disk
-	syncErr := tmpFile.Sync()
-
-	// Close the file
-	closeErr := tmpFile.Close()
-
-	// Check for errors in order of occurrence
-	if writeErr != nil {
-		os.Remove(tmpPath) // Clean up temp file
-		return fmt.Errorf("failed to write data: %w", writeErr)
-	}
-	if syncErr != nil {
-		os.Remove(tmpPath) // Clean up temp file
-		return fmt.Errorf("failed to sync temp file: %w", syncErr)
-	}
-	if closeErr != nil {
-		os.Remove(tmpPath) // Clean up temp file
-		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	if err := tmpFile.Chmod(perm); err != nil {
+		return fmt.Errorf("failed to set permissions on temp file: %w", err)
 	}
 
-	// Atomically rename temp file to target file
+	if _, err := tmpFile.Write(data); err != nil {
+		return fmt.Errorf("failed to write data: %w", err)
+	}
+
+	// Flush file data before rename to guarantee durability across power loss.
+	if err := tmpFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync temp file: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
 	if err := os.Rename(tmpPath, filename); err != nil {
-		os.Remove(tmpPath) // Clean up temp file
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
-	// Sync the parent directory to ensure the rename is durable
-	// This is best-effort; on some platforms (like Windows) it may fail
+	// Sync directory to persist the rename.
 	_ = syncDir(dir)
 
 	return nil
 }
 
-// syncDir syncs a directory to ensure metadata changes (like renames) are durable
-// This is best-effort and may not work on all platforms (e.g., Windows)
+// syncDir forces the filesystem to flush directory metadata changes to disk.
+//
+// This is primarily used after atomic renames to ensure that the rename itself
+// is durably recorded in the directory structure. Without syncing the directory,
+// a crash or power failure could revert the rename even if the file contents
+// were successfully written.
+//
+// Platform constraint: On Windows this operation may fail with "Access is denied"
+// because directory syncing is not universally supported.
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -68,7 +85,5 @@ func syncDir(dir string) error {
 	}
 	defer d.Close()
 
-	// Sync may fail on Windows with "Access is denied"
-	// This is expected and not a critical error
 	return d.Sync()
 }

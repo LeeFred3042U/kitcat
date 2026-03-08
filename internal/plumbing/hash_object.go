@@ -1,17 +1,17 @@
 // MIT License
-
+//
 // Copyright (c) [2025] [Zeeshan Ahmad Alavi]
-
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-
+//
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
-
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -31,9 +31,28 @@ import (
 	"path/filepath"
 )
 
-// HashAndWriteObject constructs a Git-style object, computes its SHA-1,
-// and stores it in the object database using content-addressed storage.
-// Supports all object types (blob, tree, commit).
+// HashAndWriteObject constructs a Git-compatible object, computes its
+// content-addressed SHA-1 identifier, and persists the object into the
+// repository object database.
+//
+// The object layout follows the canonical Git format:
+//
+//	"<type> <size>\0<payload>"
+//
+// The header is included in the hash calculation, ensuring compatibility
+// with Git’s object model and guaranteeing identical hashes for identical
+// objects.
+//
+// Objects are stored using a fan-out directory structure:
+//
+//	.kitcat/objects/<first-two-hex>/<remaining-hash>
+//
+// This layout prevents excessive numbers of files from accumulating in a
+// single directory and mirrors Git’s object storage strategy.
+//
+// If the object already exists in the object database, the write is skipped
+// because objects are immutable. The function still returns the computed
+// object hash.
 func HashAndWriteObject(content []byte, objType string) (string, error) {
 	// Object header is part of the hash input; omitting it would produce
 	// incompatible object IDs compared to Git.
@@ -44,11 +63,11 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 	sum := sha1.Sum(store)
 	hash := fmt.Sprintf("%x", sum)
 
-	// Fan-out directory structure avoids too many files in a single directory
+	// Fan-out directory structure avoids too many files in a single directory.
 	dir := filepath.Join(".kitcat/objects", hash[:2])
 	path := filepath.Join(dir, hash[2:])
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 
@@ -57,13 +76,14 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 		var buf bytes.Buffer
 		w := zlib.NewWriter(&buf)
 
-		// Objects are stored compressed to reduce disk usage and match Git format.
+		// Objects are stored compressed to reduce disk usage
+		// and match Git's storage format.
 		if _, err := w.Write(store); err != nil {
 			return "", err
 		}
 		w.Close()
 
-		if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 			return "", err
 		}
 	}

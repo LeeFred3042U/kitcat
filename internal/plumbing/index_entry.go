@@ -22,52 +22,70 @@
 
 package plumbing
 
-// IndexEntry is the in-memory representation of a single entry from the
-// Git index (DIRC) file. It combines the logical Git fields needed to
-// construct trees/commits with filesystem metadata cached to avoid
-// re-hashing unchanged files.
+// IndexEntry represents a single entry in the Git index (DIRC) file.
+//
+// The index acts as Git’s staging area, recording the mapping between
+// repository paths and the blob objects that represent their contents.
+// In addition to logical Git metadata, the index stores filesystem
+// stat information to allow quick change detection without recomputing
+// file hashes.
+//
+// This structure mirrors the on-disk layout used in Git index version 2/3,
+// though only the fields necessary for object construction and change
+// detection are exposed here.
 type IndexEntry struct {
 	// ---- Logical (Git semantics) ----
 
-	// Path is the file path relative to the repository root. Stored as
-	// path separators matching Git (forward slashes).
+	// Path is the file path relative to the repository root.
+	// Paths are stored using forward slashes to match Git’s
+	// canonical path representation.
 	Path string
 
-	// Hash is the 20-byte SHA-1 object ID of the blob this index entry
-	// points to. Stored as raw binary for efficient serialization.
+	// Hash is the 20-byte SHA-1 object ID of the blob referenced
+	// by this index entry. It is stored in raw binary form to
+	// simplify serialization into tree and index formats.
 	Hash [20]byte
 
-	// Mode encodes file type and permission bits (e.g. 0100644, 0100755,
-	// 0120000 for symlink). Must be preserved when writing tree objects.
+	// Mode encodes the file type and permission bits using the
+	// same representation as Git tree objects (for example
+	// 0100644 for normal files or 0100755 for executables).
 	Mode uint32
 
-	// Stage is the Git merge stage (0..3). 0 means normal (not in a
-	// conflicted merge state).
+	// Stage represents the Git merge stage (0–3). A value of 0
+	// indicates a normal index entry, while non-zero values
+	// represent entries created during merge conflicts.
 	Stage uint8
 
 	// ---- Cached stat info (filesystem) ----
 
-	// CTimeSec / CTimeNSec: inode change time (seconds, nanoseconds).
-	// Used for quick index validity checks against on-disk files.
+	// CTimeSec and CTimeNSec store the inode change time of the
+	// file (seconds and nanoseconds). These values help determine
+	// whether the file’s metadata has changed since the last
+	// index update.
 	CTimeSec  uint32
 	CTimeNSec uint32
 
-	// MTimeSec / MTimeNSec: modification time (seconds, nanoseconds).
-	// Used together with size/dev/ino to detect modifications cheaply.
+	// MTimeSec and MTimeNSec store the file modification time
+	// (seconds and nanoseconds). Together with file size and
+	// device identifiers they allow quick detection of changes
+	// without rehashing file contents.
 	MTimeSec  uint32
 	MTimeNSec uint32
 
-	// Device and inode identifiers to detect file identity across renames
-	// or moves without relying solely on path comparisons.
+	// Dev and Ino store the device and inode identifiers for the
+	// file. These values allow detection of file identity changes
+	// even when paths are moved or renamed.
 	Dev uint32
 	Ino uint32
 
-	// UID / GID: file owner/group; present to fully mirror Git's index
-	// stat cache and for portability checks where relevant.
+	// UID and GID record the user and group ownership of the file.
+	// These fields are included to mirror Git’s index stat cache
+	// and preserve filesystem metadata across operations.
 	UID uint32
 	GID uint32
 
-	// Size is the file size in bytes. Combined with timestamps and device/inode
-	// it provides a fast path to skip expensive blob hashing when unchanged.
+	// Size stores the file size in bytes. Together with timestamps,
+	// device ID, and inode number it provides a fast path for
+	// determining whether a file needs to be rehashed.
 	Size uint32
 }

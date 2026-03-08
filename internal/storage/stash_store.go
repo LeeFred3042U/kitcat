@@ -1,24 +1,33 @@
 package storage
 
 import (
-	"path/filepath"
-	"strings"
-	"errors"
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
+// ErrNoStash indicates that a stash operation requiring an existing entry
+// was attempted while the stash stack is empty.
 var ErrNoStash = errors.New("no stash entries found")
 
+// getStashPath returns the absolute filesystem path of the stash log file.
+//
+// The stash is implemented as a simple append-only log located inside the
+// repository directory. Each line represents a single commit ID.
 func getStashPath() string {
 	return filepath.Join(repo.Dir, "stash.log")
 }
 
-// PushStash appends a commit ID to the stash stack (LIFO)
-// The newest stash is at the end of the file
+// PushStash appends a commit ID to the stash stack.
+//
+// The stash is stored as a newline-delimited file where the newest entry
+// is appended to the end. Logical LIFO ordering is reconstructed during
+// reads by reversing the file order.
 func PushStash(commitID string) error {
 	if commitID == "" {
 		return fmt.Errorf("commit ID cannot be empty")
@@ -28,7 +37,7 @@ func PushStash(commitID string) error {
 		return err
 	}
 
-	// Lock the file to prevent concurrent writes
+	// Lock the file to prevent concurrent writes during the stash operation.
 	lockFile, err := lock(getStashPath())
 	if err != nil {
 		return err
@@ -41,16 +50,20 @@ func PushStash(commitID string) error {
 	}
 	defer f.Close()
 
-	// Write commit ID as a single line
+	// Each stash entry is stored as a single line containing the commit ID.
 	if _, err := fmt.Fprintln(f, commitID); err != nil {
 		return err
 	}
 
+	// Ensure the append is flushed to disk.
 	return f.Sync()
 }
 
-// PopStash removes and returns the most recent stash commit ID
-// Returns ErrNoStash if the stack is empty
+// PopStash removes and returns the most recent stash entry.
+//
+// The stash stack is logically LIFO. Internally the newest entry appears
+// at the end of the file, but ListStashes returns entries reversed so
+// index 0 always represents the most recent stash.
 func PopStash() (string, error) {
 	stashes, err := ListStashes()
 	if err != nil {
@@ -61,24 +74,24 @@ func PopStash() (string, error) {
 		return "", ErrNoStash
 	}
 
-	// Get the most recent stash (first in the list)
+	// Get the most recent stash (first in the list).
 	topStash := stashes[0]
 
-	// Lock the file for writing
+	// Lock the file for writing to safely rewrite the stash log.
 	lockFile, err := lock(getStashPath())
 	if err != nil {
 		return "", err
 	}
 	defer unlock(lockFile)
 
-	// Rewrite the file without the top stash
+	// Rewrite the file without the top stash.
 	tmpPath := getStashPath() + ".tmp"
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
 		return "", err
 	}
 
-	// Write all stashes except the first one (in reverse order to maintain file order)
+	// Write remaining stashes back in original file order.
 	for i := len(stashes) - 1; i > 0; i-- {
 		if _, err := fmt.Fprintln(tmpFile, stashes[i]); err != nil {
 			tmpFile.Close()
@@ -92,7 +105,7 @@ func PopStash() (string, error) {
 		return "", err
 	}
 
-	// Replace the original file
+	// Atomically replace the original stash file.
 	if err := os.Rename(tmpPath, getStashPath()); err != nil {
 		return "", err
 	}
@@ -100,8 +113,8 @@ func PopStash() (string, error) {
 	return topStash, nil
 }
 
-// PeekStash returns the most recent stash commit ID without removing it
-// Returns ErrNoStash if the stack is empty
+// PeekStash returns the most recent stash entry without removing it
+// from the stash stack.
 func PeekStash() (string, error) {
 	stashes, err := ListStashes()
 	if err != nil {
@@ -115,8 +128,11 @@ func PeekStash() (string, error) {
 	return stashes[0], nil
 }
 
-// ListStashes returns all stash commit IDs in order (newest first)
-// Returns an empty slice if no stashes exist
+// ListStashes reads the stash log file and returns all stored commit IDs
+// in last-in-first-out (LIFO) order.
+//
+// Internally the file stores entries oldest-to-newest. The returned slice
+// is reversed so callers always see the most recent stash first.
 func ListStashes() ([]string, error) {
 	if _, err := os.Stat(getStashPath()); os.IsNotExist(err) {
 		return []string{}, nil
@@ -141,7 +157,7 @@ func ListStashes() ([]string, error) {
 		return nil, err
 	}
 
-	// Reverse the order so newest is first
+	// Reverse order so newest stash appears first.
 	for i, j := 0, len(stashes)-1; i < j; i, j = i+1, j-1 {
 		stashes[i], stashes[j] = stashes[j], stashes[i]
 	}
@@ -149,20 +165,22 @@ func ListStashes() ([]string, error) {
 	return stashes, nil
 }
 
-// ClearStash removes all stash entries by truncating the stash file to size 0.
+// ClearStash removes all stash entries by truncating the stash log file.
+//
+// If the stash file does not exist, the operation is treated as a no-op.
 func ClearStash() error {
-	// If the file doesn't exist, nothing to clear
+	// If the file doesn't exist, nothing to clear.
 	if _, err := os.Stat(getStashPath()); os.IsNotExist(err) {
 		return nil
 	}
 
-	// Lock the file to prevent concurrent writes
+	// Lock the file to prevent concurrent writes during truncation.
 	lockFile, err := lock(getStashPath())
 	if err != nil {
 		return err
 	}
 	defer unlock(lockFile)
 
-	// Truncate the file to size 0
+	// Truncate the file to size 0.
 	return os.Truncate(getStashPath(), 0)
 }

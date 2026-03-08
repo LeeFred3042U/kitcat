@@ -29,16 +29,23 @@ import (
 	"strings"
 )
 
-// treeNode represents an intermediate in-memory directory structure used
-// to assemble tree objects before serialization. It separates files from
-// subdirectories to allow recursive hashing.
+// treeNode represents an intermediate in-memory directory tree used
+// during tree object construction.
+//
+// The structure separates file entries from directory entries so the
+// tree can be recursively hashed. This mirrors Git’s hierarchical tree
+// object model where each directory is itself a tree object.
 type treeNode struct {
 	files map[string]treeEntry
 	dirs  map[string]*treeNode
 }
 
-// WriteTree builds a Git tree object from index entries and writes it
-// to object storage. Returns the root tree hash.
+// WriteTree constructs a Git tree object from the repository index and
+// writes the resulting object to the object database.
+//
+// The function reads index entries from disk, builds an in-memory
+// directory tree, and recursively serializes it into Git tree objects.
+// The resulting root tree hash is returned.
 func WriteTree(indexPath string) (string, error) {
 	indexEntries, err := ReadIndex(indexPath)
 	if err != nil {
@@ -58,9 +65,14 @@ func WriteTree(indexPath string) (string, error) {
 	return writeTreeRecursive(root)
 }
 
+// addToTree inserts an IndexEntry into the in-memory tree structure.
+//
+// The path is split into components and intermediate directory nodes
+// are created as needed so the resulting structure matches the logical
+// repository directory hierarchy.
 func addToTree(root *treeNode, e IndexEntry) {
 	// Git paths always use forward slashes '/', regardless of the OS.
-	// filepath.Separator would break this on Windows.
+	// Using filepath.Separator would break compatibility on Windows.
 	parts := strings.Split(e.Path, "/")
 	node := root
 
@@ -86,6 +98,11 @@ func addToTree(root *treeNode, e IndexEntry) {
 	}
 }
 
+// writeTreeRecursive serializes a treeNode into a Git tree object.
+//
+// Child directories are recursively written first so their resulting
+// tree hashes can be embedded into the parent tree entry. This ensures
+// the Merkle-tree invariant required by Git’s object model.
 func writeTreeRecursive(node *treeNode) (string, error) {
 	var entries []treeEntry
 
@@ -113,7 +130,7 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 		copy(h[:], hashBytes)
 
 		entries = append(entries, treeEntry{
-			mode: 040000, // Standard Git Tree Mode (directory)
+			mode: 0o40000, // Standard Git tree mode for directories
 			name: name,
 			hash: h,
 		})
@@ -125,14 +142,14 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 		return entries[i].name < entries[j].name
 	})
 
-	// Serialize entries using Git tree format: "<mode> <name>\0<raw-hash>".
-	// Binary hashes are appended directly after the null terminator.
+	// Serialize entries using the Git tree object format:
+	// "<mode> <name>\0<20-byte raw hash>"
 	var buf bytes.Buffer
 	for _, e := range entries {
 		fmt.Fprintf(&buf, "%o %s\x00", e.mode, e.name)
 		buf.Write(e.hash[:])
 	}
 
-	// Writing the object has filesystem side effects through object storage.
+	// Writing the object stores it in the object database and returns its hash.
 	return HashAndWriteObject(buf.Bytes(), "tree")
 }

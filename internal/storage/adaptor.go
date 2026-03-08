@@ -1,26 +1,39 @@
 package storage
 
 import (
-	"compress/zlib"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"errors"
 	"bytes"
-	"time"
+	"compress/zlib"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
+// ErrNoCommits indicates that the repository does not yet contain
+// any commit history. It is returned when HEAD cannot be resolved
+// to a valid commit reference.
 var ErrNoCommits = errors.New("no commits found")
 
 // ReadObject locates, decompresses, and returns the raw payload of an
-// object by stripping the "<type> <size>\0" header used in storage.
+// object stored in the repository object database.
+//
+// Objects are stored in a Git-style format under repo.ObjectsDir using
+// a fan-out directory structure where the first two hex characters of
+// the hash form the directory and the remainder form the filename.
+//
+// The stored object format is:
+//
+//	"<type> <size>\0<payload>"
+//
+// This function removes the header and returns only the payload.
 func ReadObject(hash string) ([]byte, error) {
 	if len(hash) < 2 {
 		return nil, fmt.Errorf("invalid hash: %s", hash)
@@ -52,14 +65,26 @@ func ReadObject(hash string) ([]byte, error) {
 	return raw[nullIdx+1:], nil
 }
 
-// GetRef reads the content of a reference file and trims whitespace.
+// GetRef reads the content of a reference file located within the
+// repository directory and returns the trimmed reference value.
+//
+// References typically contain commit hashes or symbolic references
+// such as "ref: refs/heads/main".
 func GetRef(name string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(repo.Dir, name))
 	return strings.TrimSpace(string(b)), err
 }
 
-// ReadCommits walks commit history starting from HEAD and returns a linear
-// slice of commits by following parent links until root or cycle detection.
+// ReadCommits walks commit history starting from the current HEAD and
+// returns a linear slice of commits following parent pointers.
+//
+// Traversal stops when:
+//   - A commit has no parent (root commit)
+//   - A referenced parent cannot be resolved
+//   - A previously seen commit ID appears (cycle protection)
+//
+// Cycle detection protects against corrupted commit graphs that could
+// otherwise produce infinite loops.
 func ReadCommits() ([]models.Commit, error) {
 	head, err := GetLastCommit()
 	if err != nil {
@@ -93,7 +118,16 @@ func ReadCommits() ([]models.Commit, error) {
 	return commits, nil
 }
 
-// GetLastCommit resolves HEAD to a commit hash, supporting symbolic refs.
+// GetLastCommit resolves the repository HEAD reference to the most
+// recent commit object.
+//
+// HEAD may contain either:
+//
+//   - A direct commit hash
+//   - A symbolic reference such as "ref: refs/heads/main"
+//
+// Symbolic references are resolved by reading the referenced file
+// inside the repository directory.
 func GetLastCommit() (models.Commit, error) {
 	head, err := os.ReadFile(repo.HeadPath)
 	if os.IsNotExist(err) {
@@ -106,9 +140,8 @@ func GetLastCommit() (models.Commit, error) {
 	ref := strings.TrimSpace(string(head))
 
 	// Resolve symbolic refs like "ref: refs/heads/main".
-	if strings.HasPrefix(ref, "ref: ") {
-		ref = strings.TrimPrefix(ref, "ref: ")
-		data, err := os.ReadFile(filepath.Join(repo.Dir, ref))
+	if trimmed, ok := strings.CutPrefix(ref, "ref: "); ok {
+		data, err := os.ReadFile(filepath.Join(repo.Dir, trimmed))
 		if err != nil {
 			return models.Commit{}, ErrNoCommits
 		}
@@ -121,7 +154,8 @@ func GetLastCommit() (models.Commit, error) {
 	return FindCommit(ref)
 }
 
-// FindCommit reads a commit object and parses its metadata into a model.
+// FindCommit loads a commit object by hash from the object database
+// and parses its contents into a models.Commit structure.
 func FindCommit(hash string) (models.Commit, error) {
 	raw, err := ReadObject(hash)
 	if err != nil {
@@ -130,7 +164,18 @@ func FindCommit(hash string) (models.Commit, error) {
 	return parseCommit(hash, raw)
 }
 
-// parseCommit extracts metadata from a raw commit object payload.
+// parseCommit parses the textual payload of a commit object and
+// extracts structured metadata into a models.Commit instance.
+//
+// The commit format follows Git's canonical layout:
+//
+//	tree <hash>
+//	parent <hash>
+//	author Name <email> timestamp timezone
+//
+//	<commit message>
+//
+// Only the fields required by the higher-level model are extracted.
 func parseCommit(hash string, data []byte) (models.Commit, error) {
 	s := string(data)
 	lines := strings.Split(s, "\n")
@@ -145,7 +190,7 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 		if len(parts) < 2 {
 			continue
 		}
-		
+
 		switch parts[0] {
 		case "tree":
 			c.TreeHash = parts[1]
@@ -156,11 +201,11 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 			line := parts[1]
 			emailStart := strings.IndexByte(line, '<')
 			emailEnd := strings.IndexByte(line, '>')
-			
+
 			if emailStart != -1 && emailEnd != -1 && emailEnd > emailStart {
 				c.AuthorName = strings.TrimSpace(line[:emailStart])
 				c.AuthorEmail = line[emailStart+1 : emailEnd]
-				
+
 				timeData := strings.TrimSpace(line[emailEnd+1:])
 				timeParts := strings.Fields(timeData)
 				if len(timeParts) >= 2 {
@@ -169,7 +214,8 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 					}
 				}
 			} else {
-				c.AuthorName = line // Fallback if malformed
+				// Fallback if the author line is malformed.
+				c.AuthorName = line
 			}
 		}
 	}
@@ -180,8 +226,9 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 	return c, nil
 }
 
-// HashFile reads a file from disk and stores it as a blob object,
-// returning the resulting object hash.
+// HashFile reads a file from disk, creates a blob object from its
+// contents, stores it in the object database, and returns the resulting
+// object hash.
 func HashFile(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -190,9 +237,16 @@ func HashFile(path string) (string, error) {
 	return plumbing.HashAndWriteObject(content, "blob")
 }
 
-// FindMergeBase performs a simple ancestry search to locate the first
-// common ancestor between two commits. Assumes linear history and does
-// not account for complex DAG traversal or multiple parents.
+// FindMergeBase performs a simple ancestry traversal to locate the first
+// common ancestor between two commits.
+//
+// The algorithm records all ancestors of the first commit and then walks
+// the ancestry of the second commit until a matching commit ID is found.
+//
+// Limitations:
+//   - Assumes linear history (single parent)
+//   - Does not perform full DAG merge-base computation
+//   - Stops traversal when a commit cannot be resolved
 func FindMergeBase(h1, h2 string) (string, error) {
 	// Record all ancestors of h1.
 	ancestors := make(map[string]bool)

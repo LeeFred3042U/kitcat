@@ -77,7 +77,7 @@ func SetConfig(fullKey, value string, global bool) error {
 	path := getConfigPath(global)
 	data, _ := os.ReadFile(path)
 	lines := strings.Split(string(data), "\n")
-	
+
 	// If the file is completely empty or missing, prevent a leading blank line.
 	if len(lines) == 1 && lines[0] == "" {
 		lines = []string{}
@@ -143,7 +143,7 @@ func SetConfig(fullKey, value string, global bool) error {
 		out = append(out, "")
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(out, "\n")), 0644)
+	return os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o644)
 }
 
 // GetConfig retrieves a value from the INI configuration file.

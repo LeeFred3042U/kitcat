@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	
+
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
@@ -24,7 +24,7 @@ type RebaseState struct {
 // EnsureRebaseDir creates the rebase-merge directory if it does not exist.
 func EnsureRebaseDir() error {
 	path := filepath.Join(repo.Dir, "rebase-merge")
-	return os.MkdirAll(path, 0755)
+	return os.MkdirAll(path, 0o755)
 }
 
 // SaveRebaseState persists the RebaseState into files under .kitcat/rebase-merge.
@@ -37,7 +37,7 @@ func SaveRebaseState(state RebaseState) error {
 
 	// Helper to write files and check errors immediately.
 	write := func(filename, content string) error {
-		return os.WriteFile(filepath.Join(base, filename), []byte(content), 0644)
+		return os.WriteFile(filepath.Join(base, filename), []byte(content), 0o644)
 	}
 
 	if err := write("head-name", state.HeadName); err != nil {

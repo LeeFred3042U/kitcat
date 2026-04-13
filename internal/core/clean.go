@@ -97,7 +97,6 @@ func Clean(dryRun, removeDirs, removeIgnored, onlyIgnored bool) error {
 
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}

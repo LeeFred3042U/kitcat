@@ -19,7 +19,7 @@ func handleLink(args []string) {
 
 	// 1. RESTRICTION: Hardcoded blacklist of shell builtins and dangerous commands
 	restricted := []string{
-		"bash", "zsh", "sh", "cd", "ls", "rm", "mv", "cp", "git", 
+		"bash", "zsh", "sh", "cd", "ls", "rm", "mv", "cp", "git",
 		"sudo", "alias", "echo", "pwd", "cat", "mkdir", "clear",
 	}
 	for _, r := range restricted {

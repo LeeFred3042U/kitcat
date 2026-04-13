@@ -6,18 +6,29 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/diff"
 )
 
-// Edit represents a change made to the base text.
+// Edit represents a modification applied to a contiguous region of the
+// base text during merge processing.
+//
+// BaseStart and BaseEnd define the affected range in the base text
+// (half-open interval). Lines contains the replacement lines introduced
+// by the edit.
 type Edit struct {
 	BaseStart int
 	BaseEnd   int
 	Lines     []string
 }
 
-// Merge3 performs a file-level 3-way merge on base, ours, and theirs text.
-// It returns the merged text (with conflict markers if necessary) and a boolean
-// indicating if a conflict occurred.
+// Merge3 performs a three-way text merge between base, ours, and theirs.
+//
+// The function operates on line-oriented text and attempts to combine
+// modifications from both branches relative to the base version. When
+// both branches modify the same region differently, standard conflict
+// markers are inserted into the result.
+//
+// The returned boolean indicates whether a conflict occurred during
+// the merge.
 func Merge3(base, ours, theirs string) (string, bool) {
-	// Fast paths for identical files
+	// Fast paths for identical files.
 	if ours == theirs {
 		return ours, false
 	}
@@ -32,6 +43,7 @@ func Merge3(base, ours, theirs string) (string, bool) {
 	oursLines := strings.Split(ours, "\n")
 	theirsLines := strings.Split(theirs, "\n")
 
+	// Compute line-based diffs against the base.
 	oursDiffs := diff.DiffLines(baseLines, oursLines)
 	theirsDiffs := diff.DiffLines(baseLines, theirsLines)
 
@@ -44,7 +56,7 @@ func Merge3(base, ours, theirs string) (string, bool) {
 
 	oIdx, tIdx := 0, 0
 
-	// Walk through the base file and interleave/compare edits
+	// Walk through the base file and interleave/compare edits from both sides.
 	for oIdx < len(oursEdits) || tIdx < len(theirsEdits) {
 		var oEdit, tEdit *Edit
 		if oIdx < len(oursEdits) {
@@ -54,7 +66,7 @@ func Merge3(base, ours, theirs string) (string, bool) {
 			tEdit = &theirsEdits[tIdx]
 		}
 
-		// Find the earliest upcoming edit
+		// Determine the next base position where an edit begins.
 		var nextBase int
 		if oEdit != nil && tEdit != nil {
 			nextBase = min(oEdit.BaseStart, tEdit.BaseStart)
@@ -64,19 +76,20 @@ func Merge3(base, ours, theirs string) (string, bool) {
 			nextBase = tEdit.BaseStart
 		}
 
-		// Catch up base lines until the next edit
+		// Copy unchanged base lines up to the next edit boundary.
 		for baseIdx < nextBase {
 			result = append(result, baseLines[baseIdx])
 			baseIdx++
 		}
 
-		// Group all contiguous/overlapping edits into a "conflict region"
+		// Group overlapping edits from both sides into a single region.
 		regionStart := nextBase
 		regionEnd := nextBase
 		var oGroup, tGroup []Edit
 
 		for {
 			expanded := false
+
 			if oIdx < len(oursEdits) && oursEdits[oIdx].BaseStart <= regionEnd {
 				oGroup = append(oGroup, oursEdits[oIdx])
 				if oursEdits[oIdx].BaseEnd > regionEnd {
@@ -85,6 +98,7 @@ func Merge3(base, ours, theirs string) (string, bool) {
 				oIdx++
 				expanded = true
 			}
+
 			if tIdx < len(theirsEdits) && theirsEdits[tIdx].BaseStart <= regionEnd {
 				tGroup = append(tGroup, theirsEdits[tIdx])
 				if theirsEdits[tIdx].BaseEnd > regionEnd {
@@ -93,12 +107,13 @@ func Merge3(base, ours, theirs string) (string, bool) {
 				tIdx++
 				expanded = true
 			}
+
 			if !expanded {
 				break
 			}
 		}
 
-		// Apply the grouped edits to the region
+		// Apply edits within the region.
 		if len(oGroup) > 0 && len(tGroup) == 0 {
 			for _, e := range oGroup {
 				result = append(result, e.Lines...)
@@ -108,15 +123,15 @@ func Merge3(base, ours, theirs string) (string, bool) {
 				result = append(result, e.Lines...)
 			}
 		} else {
-			// Both modified this region: Check for conflicts
+			// Both sides modified the same region.
 			oStr := buildRegion(baseLines, regionStart, regionEnd, oGroup)
 			tStr := buildRegion(baseLines, regionStart, regionEnd, tGroup)
 
 			if slicesEqual(oStr, tStr) {
-				// Clean overlap: they made the exact same changes
+				// Identical edits — no conflict.
 				result = append(result, oStr...)
 			} else {
-				// Conflict: they made different changes to the same block
+				// Diverging edits — emit conflict markers.
 				conflict = true
 				result = append(result, "<<<<<<< HEAD")
 				result = append(result, oStr...)
@@ -125,10 +140,11 @@ func Merge3(base, ours, theirs string) (string, bool) {
 				result = append(result, ">>>>>>> MERGE_HEAD")
 			}
 		}
+
 		baseIdx = regionEnd
 	}
 
-	// Catch up any remaining base lines at the end of the file
+	// Append any remaining base lines after the final edit.
 	for baseIdx < len(baseLines) {
 		result = append(result, baseLines[baseIdx])
 		baseIdx++
@@ -137,7 +153,8 @@ func Merge3(base, ours, theirs string) (string, bool) {
 	return strings.Join(result, "\n"), conflict
 }
 
-// diffToEdits converts a sequence of Myers Diff operations into distinct Edit blocks.
+// diffToEdits converts a sequence of Myers diff operations into a list
+// of Edit structures describing modifications relative to the base text.
 func diffToEdits(diffs []diff.Diff[string]) []Edit {
 	var edits []Edit
 	baseIdx := 0
@@ -151,6 +168,7 @@ func diffToEdits(diffs []diff.Diff[string]) []Edit {
 				currentEdit = nil
 			}
 			baseIdx += len(d.Text)
+
 		case diff.DELETE:
 			if currentEdit == nil {
 				currentEdit = &Edit{BaseStart: baseIdx, BaseEnd: baseIdx + len(d.Text)}
@@ -158,51 +176,68 @@ func diffToEdits(diffs []diff.Diff[string]) []Edit {
 				currentEdit.BaseEnd += len(d.Text)
 			}
 			baseIdx += len(d.Text)
+
 		case diff.INSERT:
 			if currentEdit == nil {
-				currentEdit = &Edit{BaseStart: baseIdx, BaseEnd: baseIdx, Lines: append([]string{}, d.Text...)}
+				currentEdit = &Edit{
+					BaseStart: baseIdx,
+					BaseEnd:   baseIdx,
+					Lines:     append([]string{}, d.Text...),
+				}
 			} else {
 				currentEdit.Lines = append(currentEdit.Lines, d.Text...)
 			}
 		}
 	}
+
 	if currentEdit != nil {
 		edits = append(edits, *currentEdit)
 	}
+
 	return edits
 }
 
-// buildRegion constructs the text for a specific region given a set of edits.
+// buildRegion reconstructs the merged representation of a specific base
+// region after applying a sequence of edits.
 func buildRegion(baseLines []string, start, end int, edits []Edit) []string {
 	var res []string
 	bIdx := start
+
 	for _, e := range edits {
 		for bIdx < e.BaseStart {
 			res = append(res, baseLines[bIdx])
 			bIdx++
 		}
+
 		res = append(res, e.Lines...)
 		bIdx = e.BaseEnd
 	}
+
 	for bIdx < end {
 		res = append(res, baseLines[bIdx])
 		bIdx++
 	}
+
 	return res
 }
 
+// slicesEqual reports whether two string slices contain identical elements
+// in the same order.
 func slicesEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if a[i] != b[i] {
 			return false
 		}
 	}
+
 	return true
 }
 
+// min returns the smaller of the two provided integers.
 func min(a, b int) int {
 	if a < b {
 		return a

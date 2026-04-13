@@ -1,23 +1,23 @@
 package core
 
 import (
-	"path/filepath"
-	"encoding/hex"
-	"syscall"
-	"os/exec"
-	"strings"
-	"errors"
 	"bufio"
 	"bytes"
-	"time"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
-	"github.com/LeeFred3042U/kitcat/internal/plumbing"
-	"github.com/LeeFred3042U/kitcat/internal/storage"
 	"github.com/LeeFred3042U/kitcat/internal/models"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.
@@ -32,7 +32,7 @@ func CaptureViaEditor(filename, initialContent string) (string, error) {
 	}
 
 	msgFilePath := filepath.Join(repo.Dir, filename)
-	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0644); err != nil {
+	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0o644); err != nil {
 		return "", err
 	}
 	defer os.Remove(msgFilePath) // Always clean up
@@ -100,19 +100,6 @@ func IsRepoInitialized() bool {
 		return false
 	}
 	return true
-}
-
-// GetHeadState returns the active branch name or raw commit hash if detached.
-func GetHeadState() (string, error) {
-	headContent, err := os.ReadFile(repo.HeadPath)
-	if err != nil {
-		return "", err
-	}
-	content := strings.TrimSpace(string(headContent))
-	if strings.HasPrefix(content, "ref: refs/heads/") {
-		return strings.TrimPrefix(content, "ref: refs/heads/"), nil
-	}
-	return content, nil
 }
 
 // IsDetachedHead returns true when HEAD contains a direct commit hash.
@@ -184,7 +171,7 @@ func RestoreIndexFromCommit(commitID string) error {
 
 			var mode uint32
 			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
-				mode = 0100644
+				mode = 0o100644
 			}
 
 			index[path] = plumbing.IndexEntry{
@@ -262,7 +249,6 @@ func IsWorkDirDirty() (bool, error) {
 		}
 		return nil
 	})
-
 	if err != nil {
 		if err.Error() == "untracked" || err.Error() == "modified" {
 			return true, nil
@@ -273,6 +259,19 @@ func IsWorkDirDirty() (bool, error) {
 	return false, nil
 }
 
+// GetHeadState returns the active branch name or raw commit hash if detached.
+func GetHeadState() (string, error) {
+	headContent, err := os.ReadFile(repo.HeadPath)
+	if err != nil {
+		return "", err
+	}
+	content := strings.TrimSpace(string(headContent))
+	if trimmed, ok := strings.CutPrefix(content, "ref: refs/heads/"); ok {
+		return trimmed, nil
+	}
+	return content, nil
+}
+
 // UpdateBranchPointer updates either the branch reference or HEAD itself.
 func UpdateBranchPointer(commitHash string) error {
 	headData, err := os.ReadFile(repo.HeadPath)
@@ -281,16 +280,15 @@ func UpdateBranchPointer(commitHash string) error {
 	}
 	ref := strings.TrimSpace(string(headData))
 
-	if strings.HasPrefix(ref, "ref: ") {
-		refPath := strings.TrimPrefix(ref, "ref: ")
+	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
 		branchFile := filepath.Join(repo.Dir, refPath)
-		if err := SafeWrite(branchFile, []byte(commitHash), 0644); err != nil {
+		if err := SafeWrite(branchFile, []byte(commitHash), 0o644); err != nil {
 			return fmt.Errorf("failed to update branch pointer: %w", err)
 		}
 		return nil
 	}
 
-	if err := SafeWrite(repo.HeadPath, []byte(commitHash), 0644); err != nil {
+	if err := SafeWrite(repo.HeadPath, []byte(commitHash), 0o644); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
 	return nil
@@ -304,8 +302,7 @@ func readHead() (string, error) {
 	}
 	ref := strings.TrimSpace(string(headData))
 
-	if strings.HasPrefix(ref, "ref: ") {
-		refPath := strings.TrimPrefix(ref, "ref: ")
+	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
 		branchFile := filepath.Join(repo.Dir, refPath)
 		commitHash, err := os.ReadFile(branchFile)
 		if err != nil {
@@ -448,7 +445,7 @@ func copyRecursive(src, dst string) error {
 	}
 	defer in.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 
@@ -473,11 +470,11 @@ func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
 			return err
 		}
 
-		perm := os.FileMode(0644)
+		perm := os.FileMode(0o644)
 		var modeVal uint32
 		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
-			if (modeVal & 0111) != 0 {
-				perm = 0755
+			if (modeVal & 0o111) != 0 {
+				perm = 0o755
 			}
 		}
 
@@ -509,11 +506,11 @@ func ReflogAppend(refname, oldHash, newHash, message string) error {
 	logEntry := fmt.Sprintf("%s %s %s <%s> %d %s\t%s\n", oldHash, newHash, name, email, timestamp, tzOffset, message)
 
 	logPath := filepath.Join(repo.Dir, "logs", refname)
-	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -530,7 +527,7 @@ func UpdateWorkspaceAndIndex(commitHash string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if err := CheckoutTree(commit.TreeHash); err != nil {
 		return err
 	}

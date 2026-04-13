@@ -29,16 +29,16 @@ func TestGrepBasic(t *testing.T) {
 
 	// Create test files
 	mainContent := "package main\n\nfunc main() {}\n"
-	if err := os.WriteFile("main.go", []byte(mainContent), 0644); err != nil {
+	if err := os.WriteFile("main.go", []byte(mainContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile("ignore.go", []byte("func ignored() {}\n"), 0644); err != nil {
+	if err := os.WriteFile("ignore.go", []byte("func ignored() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create .kitcat directory
-	if err := os.Mkdir(".kitcat", 0755); err != nil {
+	if err := os.Mkdir(".kitcat", 0o755); err != nil {
 		t.Fatal(err)
 	}
 

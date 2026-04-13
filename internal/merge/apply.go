@@ -9,11 +9,21 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// ApplyMergePlan executes a calculated merge plan.
-// It mutates the workspace files and updates the index transactionally.
+// ApplyMergePlan executes a previously computed MergePlan by mutating the
+// working directory and updating the repository index.
+//
+// The operation is performed inside storage.UpdateIndex so that all index
+// mutations occur under an exclusive index lock. This ensures that the
+// workspace changes and index updates remain consistent.
+//
+// The plan is applied in three phases:
+//
+//  1. Deletions      – remove files from the workspace and index.
+//  2. Clean updates  – write merged files with no conflicts.
+//  3. Conflicts      – generate conflict markers and mark the index entry
+//     as a conflict state.
 func ApplyMergePlan(plan *MergePlan) error {
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
-
 		// 1. Process Deletions
 		for _, path := range plan.Deletions {
 			os.Remove(path)     // Remove from workspace
@@ -27,11 +37,11 @@ func ApplyMergePlan(plan *MergePlan) error {
 				return fmt.Errorf("failed to read object %s for path %s: %w", hash, path, err)
 			}
 
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
 
-			if err := os.WriteFile(path, content, 0644); err != nil {
+			if err := os.WriteFile(path, content, 0o644); err != nil {
 				return err
 			}
 
@@ -39,8 +49,8 @@ func ApplyMergePlan(plan *MergePlan) error {
 			index[path] = plumbing.IndexEntry{
 				Path:  path,
 				Hash:  hb,
-				Mode:  0100644, // Default standard file mode
-				Stage: 0,       // Stage 0 = Clean/Resolved
+				Mode:  0o100644, // Default standard file mode
+				Stage: 0,        // Stage 0 = Clean/Resolved
 			}
 		}
 
@@ -50,27 +60,27 @@ func ApplyMergePlan(plan *MergePlan) error {
 			oursText := safeRead(conflict.OursHash)
 			theirsText := safeRead(conflict.TheirsHash)
 
-			// Execute the text-level 3-way merge to generate <<<<<<< markers
+			// Execute the text-level 3-way merge to generate conflict markers.
 			mergedText, _ := Merge3(baseText, oursText, theirsText)
 
-			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
 
-			if err := os.WriteFile(path, []byte(mergedText), 0644); err != nil {
+			if err := os.WriteFile(path, []byte(mergedText), 0o644); err != nil {
 				return err
 			}
 
-			// Because kitcat's index is currently a `map[string]IndexEntry`, we can't 
-			// store Stages 1, 2, and 3 under the same path key simultaneously.
-			// As a robust workaround, we store the 'Ours' hash and mark it as Stage 2.
-			// This signals to `status` and `commit` that the file is in a conflict state.
+			// The index is currently modeled as map[string]IndexEntry, so
+			// multiple stage entries (1,2,3) for the same path cannot be
+			// represented simultaneously. As a workaround, the "ours"
+			// version is stored with Stage=2 to signal a conflicted entry.
 			hb, _ := storage.HexToHash(conflict.OursHash)
 			index[path] = plumbing.IndexEntry{
 				Path:  path,
 				Hash:  hb,
-				Mode:  0100644,
-				Stage: 2, // Git Stage 2 = "Ours" (Conflicted)
+				Mode:  0o100644,
+				Stage: 2, // Git stage 2 = "Ours"
 			}
 		}
 
@@ -78,8 +88,12 @@ func ApplyMergePlan(plan *MergePlan) error {
 	})
 }
 
-// safeRead retrieves an object's content as a string, returning an empty 
-// string if the hash is empty (e.g., if a file was newly added, not modified).
+// safeRead reads the object identified by the provided hash and returns
+// its contents as a string.
+//
+// If the hash is empty or the object cannot be read, the function returns
+// an empty string. This behavior is useful during merge operations where
+// one side of the merge may represent a file addition or deletion.
 func safeRead(hash string) string {
 	if hash == "" {
 		return ""

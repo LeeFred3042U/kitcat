@@ -1,17 +1,12 @@
 package main
 
 import (
-	"path/filepath"
-	"strings"
-	"os/exec"
-	"bufio"
-	"bytes"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/core"
-	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
 func handleCommit(args []string) {
@@ -72,53 +67,4 @@ func handleCommit(args []string) {
 	} else {
 		fmt.Printf("[%s] %s\n", hash, *msg)
 	}
-}
-
-// Add this helper function to the bottom of the file
-func captureMessageViaEditor() (string, error) {
-	editor := os.Getenv("GIT_EDITOR")
-	if editor == "" {
-		editor = os.Getenv("EDITOR")
-	}
-	if editor == "" {
-		editor = "vi" // Fallback to vi, standard Unix behavior
-	}
-
-	msgFilePath := filepath.Join(repo.Dir, "COMMIT_EDITMSG")
-	initialContent := "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored, and an empty message aborts the commit.\n"
-	if err := os.WriteFile(msgFilePath, []byte(initialContent), 0644); err != nil {
-		return "", err
-	}
-	defer os.Remove(msgFilePath) // Clean up after
-
-	cmd := exec.Command(editor, msgFilePath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("editor aborted")
-	}
-
-	content, err := os.ReadFile(msgFilePath)
-	if err != nil {
-		return "", err
-	}
-
-	// Strip comments and trim whitespace
-	var finalMsg []string
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "#") {
-			finalMsg = append(finalMsg, line)
-		}
-	}
-
-	cleanedMsg := strings.TrimSpace(strings.Join(finalMsg, "\n"))
-	if cleanedMsg == "" {
-		return "", fmt.Errorf("aborting commit due to empty commit message")
-	}
-
-	return cleanedMsg, nil
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+// Replace loadIndexForTest with a call to storage.LoadIndex() (which correctly uses plumbing.ReadIndex).
+
 func TestMoveFile(t *testing.T) {
 	// Restores the current working directory
 	cwd, err := os.Getwd()
@@ -16,7 +18,7 @@ func TestMoveFile(t *testing.T) {
 	defer os.Chdir(cwd)
 
 	// Create temp directory
-tmpDir := t.TempDir()
+	tmpDir := t.TempDir()
 
 	// Change working directory into temp repo
 	if err := os.Chdir(tmpDir); err != nil {
@@ -32,7 +34,7 @@ tmpDir := t.TempDir()
 	newPath := "new_test.txt"
 
 	// Create old file
-	if err := os.WriteFile(oldPath, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(oldPath, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,10 +87,10 @@ func TestMoveFile_DestinationExists(t *testing.T) {
 	// Create source and destination files
 	src := "source.txt"
 	dst := "destination.txt"
-	if err := os.WriteFile(src, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(src, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dst, []byte("hola"), 0644); err != nil {
+	if err := os.WriteFile(dst, []byte("hola"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,7 +151,7 @@ func TestMoveFile_SamePath(t *testing.T) {
 
 	// Create source and destination files
 	f := "file"
-	if err := os.WriteFile(f, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(f, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

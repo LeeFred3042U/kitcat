@@ -1,18 +1,23 @@
 package core
 
 import (
+	"path/filepath"
+	"strings"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// AddFile stages a file or directory.
+// AddFile stages a single file or directory into the repository index.
+//
+// The function resolves the provided path, ensures it resides within the
+// repository root, and updates the index accordingly. When a directory is
+// provided, files are staged recursively while respecting ignore patterns
+// and internal repository directories.
 func AddFile(inputPath string) error {
 	// Resolve absolute path first so later Rel computations are stable
 	// regardless of the caller’s working directory.
@@ -98,7 +103,11 @@ func AddFile(inputPath string) error {
 	})
 }
 
-// AddAll stages all files under the repository root.
+// AddAll stages every file under the repository root.
+//
+// The repository is scanned recursively and files are staged while
+// respecting ignore rules. Any previously indexed file that no longer
+// exists in the working tree is removed from the index.
 func AddAll() error {
 	repoRoot, err := FindRepoRoot()
 	if err != nil {
@@ -180,9 +189,12 @@ func AddAll() error {
 	})
 }
 
-// stageFile encapsulates the staging logic for a single file.
-// Accepts pre-calculated cleanPath to avoid redundant Rel/Clean calls.
-// Returns (tracked bool, error).
+// stageFile stages a single file into the index.
+//
+// The function performs validation checks, ensures the file is not ignored,
+// computes the blob hash, and updates the index entry. If the existing
+// index entry matches the file’s cached stat metadata, hashing is skipped
+// to avoid unnecessary I/O.
 func stageFile(fullPath, cleanPath string, info os.FileInfo,
 	index map[string]plumbing.IndexEntry,
 	ignorePatterns []IgnorePattern,
@@ -192,12 +204,12 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 		return false, nil
 	}
 
-	// Explicit guard prevents repository metadata from entering the index.
+	// Prevent repository metadata from entering the index.
 	if isInternalDir(cleanPath) {
 		return false, nil
 	}
 
-	// Safety checks prevent path traversal or ignored files from being staged.
+	// Ensure path safety and ignore rules.
 	if !IsSafePath(cleanPath) {
 		return false, nil
 	}
@@ -239,24 +251,26 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 	return true, nil
 }
 
-// shouldSkipDir determines if a directory should be skipped during walking.
+// shouldSkipDir determines whether a directory should be excluded during
+// recursive repository scans.
 func shouldSkipDir(cleanPath string, patterns []IgnorePattern, proxyIndex map[string]string) bool {
 	// Internal metadata directory is always excluded from traversal.
 	if isInternalDir(cleanPath) {
 		return true
 	}
 
-	// Delegates ignore decision to pattern matcher to keep walk logic minimal.
+	// Delegate ignore logic to pattern matcher.
 	return ShouldIgnore(cleanPath, patterns, proxyIndex)
 }
 
-// isInternalDir checks if a path belongs to the kitcat metadata directory.
-// It effectively blocks ".kitcat" and ".kitcat/..."
+// isInternalDir reports whether the given path belongs to the repository's
+// internal metadata directory (".kitcat").
 func isInternalDir(path string) bool {
 	if path == repo.Dir {
 		return true
 	}
-	// Separator-aware prefix check avoids false positives like ".kitcat_backup".
+
+	// Separator-aware prefix check avoids false positives.
 	prefix := repo.Dir + string(os.PathSeparator)
 	return strings.HasPrefix(path, prefix)
 }

@@ -1,15 +1,15 @@
 package core
 
 import (
-	"path/filepath"
-	"strings"
 	"fmt"
 	"os"
-	
-	"github.com/LeeFred3042U/kitcat/internal/plumbing"
-	"github.com/LeeFred3042U/kitcat/internal/storage"
-	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"path/filepath"
+	"strings"
+
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 // Commit creates a new commit object from the current index state.
@@ -32,10 +32,10 @@ func Commit(message string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to load index: %w", err)
 	}
-	
+
 	for path, entry := range index {
 		// Primary check: if the index serialization ever supports stages, block it here.
-		if entry.Stage != 0 { 
+		if entry.Stage != 0 {
 			return "", fmt.Errorf("cannot commit because you have unmerged files.\nFix conflicts in '%s', run '%s add', and commit again", path, app.Name)
 		}
 
@@ -63,7 +63,7 @@ func Commit(message string) (string, error) {
 	if isMerge {
 		mergeHeadBytes, _ := os.ReadFile(mergeHeadPath)
 		parents = append(parents, strings.TrimSpace(string(mergeHeadBytes)))
-		
+
 		if message == "" {
 			if msgBytes, err := os.ReadFile(mergeMsgPath); err == nil {
 				message = strings.TrimSpace(string(msgBytes))
@@ -72,9 +72,8 @@ func Commit(message string) (string, error) {
 			}
 		}
 	} else if message == "" {
-		// --- THE EDITOR INTEGRATION ---
 		initialContent := "\n# Please enter the commit message for your changes. Lines starting\n# with '#' will be ignored, and an empty message aborts the commit.\n"
-		
+
 		capturedMsg, err := CaptureViaEditor("COMMIT_EDITMSG", initialContent)
 		if err != nil {
 			return "", err
@@ -87,8 +86,12 @@ func Commit(message string) (string, error) {
 
 	name, _, _ := GetConfig("user.name")
 	email, _, _ := GetConfig("user.email")
-	if name == "" { name = "Unknown" }
-	if email == "" { email = "unknown@example.com" }
+	if name == "" {
+		name = "Unknown"
+	}
+	if email == "" {
+		email = "unknown@example.com"
+	}
 	authorStr := fmt.Sprintf("%s <%s>", name, email)
 
 	treeHash, err := plumbing.WriteTree(repo.IndexPath)
@@ -118,16 +121,13 @@ func Commit(message string) (string, error) {
 		os.Remove(mergeHeadPath)
 		os.Remove(mergeMsgPath)
 	}
-
 	// Reflog updates
 	headData, _ := os.ReadFile(repo.HeadPath)
 	ref := strings.TrimSpace(string(headData))
-	if strings.HasPrefix(ref, "ref: ") {
-		refPath := strings.TrimPrefix(ref, "ref: ")
+	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
 		ReflogAppend(refPath, oldHeadHash, commitHash, "commit: "+message)
 	}
 	ReflogAppend("HEAD", oldHeadHash, commitHash, "commit: "+message)
-
 	return commitHash, nil
 }
 
@@ -182,7 +182,7 @@ func AmendCommit(message string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	if err := updateHead(commitHash); err != nil {
 		return "", err
 	}
@@ -207,9 +207,9 @@ func updateHead(commitHash string) error {
 	}
 
 	fullRefPath := filepath.Join(repo.Dir, refPath)
-	if err := os.MkdirAll(filepath.Dir(fullRefPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(fullRefPath), 0o755); err != nil {
 		return err
 	}
-	
-	return SafeWrite(fullRefPath, []byte(commitHash), 0644)
+
+	return SafeWrite(fullRefPath, []byte(commitHash), 0o644)
 }

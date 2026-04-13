@@ -9,11 +9,11 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/merge"
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
-	"github.com/LeeFred3042U/kitcat/internal/storage"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// RebaseAbort cancels an active rebase, restores the original HEAD, 
+// RebaseAbort cancels an active rebase, restores the original HEAD,
 // and cleans up the sequencer state.
 func RebaseAbort() error {
 	if !IsRebaseInProgress() {
@@ -26,7 +26,7 @@ func RebaseAbort() error {
 	}
 
 	fmt.Printf("Aborting rebase; restoring HEAD to %s\n", state.OrigHead[:7])
-	
+
 	if err := hardResetTo(state.OrigHead); err != nil {
 		return fmt.Errorf("failed to restore original HEAD: %w", err)
 	}
@@ -64,7 +64,7 @@ func RebaseContinue() error {
 		// Conflicts are resolved! Commit the paused step before continuing.
 		stoppedHash := strings.TrimSpace(string(stoppedHashBytes))
 		commitToApply, _ := storage.FindCommit(stoppedHash)
-		
+
 		if _, err := commitRebaseStep(commitToApply); err != nil {
 			return fmt.Errorf("failed to commit resolved rebase step: %w", err)
 		}
@@ -120,8 +120,8 @@ func RebaseContinue() error {
 		// --- CONFLICT HANDLING ---
 		if len(plan.Conflicts) > 0 {
 			// Pause the sequencer by writing the stopped-sha
-			os.WriteFile(stoppedShaPath, []byte(hash), 0644)
-			
+			os.WriteFile(stoppedShaPath, []byte(hash), 0o644)
+
 			fmt.Println("CONFLICT (content): Merge conflict in files:")
 			for path := range plan.Conflicts {
 				fmt.Printf("  - %s\n", path)
@@ -166,8 +166,12 @@ func commitRebaseStep(original models.Commit) (string, error) {
 	// Update the committer to the current user (The person running the rebase)
 	name, _, _ := GetConfig("user.name")
 	email, _, _ := GetConfig("user.email")
-	if name == "" { name = "Unknown" }
-	if email == "" { email = "unknown@example.com" }
+	if name == "" {
+		name = "Unknown"
+	}
+	if email == "" {
+		email = "unknown@example.com"
+	}
 	committerStr := fmt.Sprintf("%s <%s>", name, email)
 
 	opts := plumbing.CommitOptions{
@@ -286,7 +290,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		CurrentStep: 0,
 		Message:     "",
 	}
-	
+
 	if err := SaveRebaseState(state); err != nil {
 		return fmt.Errorf("failed to initialize rebase state: %w", err)
 	}
@@ -305,9 +309,9 @@ func Rebase(targetBranch string, interactive bool) error {
 func hardResetTo(hash string) error {
 	currentBranch, _ := GetCurrentBranch()
 	refPath := ".kitcat/refs/heads/" + currentBranch
-	
+
 	// Atomic write
-	if err := SafeWrite(refPath, []byte(hash), 0644); err != nil {
+	if err := SafeWrite(refPath, []byte(hash), 0o644); err != nil {
 		return err
 	}
 	return Reset(hash, ResetHard)

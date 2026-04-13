@@ -38,12 +38,12 @@ func CreateTag(tagName, commitHash string) error {
 	}
 
 	tagPath := filepath.Join(repo.TagsDir, tagName)
-	
-	if err := os.MkdirAll(repo.TagsDir, 0755); err != nil {
+
+	if err := os.MkdirAll(repo.TagsDir, 0o755); err != nil {
 		return err
 	}
 
-	if err := SafeWrite(tagPath, []byte(commitHash+"\n"), 0644); err != nil {
+	if err := SafeWrite(tagPath, []byte(commitHash+"\n"), 0o644); err != nil {
 		return err
 	}
 
@@ -60,8 +60,12 @@ func CreateAnnotatedTag(tagName, commitHash, message string) error {
 	// 1. Get tagger identity
 	name, _, _ := GetConfig("user.name")
 	email, _, _ := GetConfig("user.email")
-	if name == "" { name = "Unknown" }
-	if email == "" { email = "unknown@example.com" }
+	if name == "" {
+		name = "Unknown"
+	}
+	if email == "" {
+		email = "unknown@example.com"
+	}
 
 	// 2. Format Timestamp (Unix Time + Timezone Offset)
 	now := time.Now()
@@ -89,11 +93,11 @@ func CreateAnnotatedTag(tagName, commitHash, message string) error {
 
 	// 5. Write the TAG OBJECT'S HASH to the refs/tags/ file
 	tagPath := filepath.Join(repo.TagsDir, tagName)
-	if err := os.MkdirAll(repo.TagsDir, 0755); err != nil {
+	if err := os.MkdirAll(repo.TagsDir, 0o755); err != nil {
 		return err
 	}
 
-	if err := SafeWrite(tagPath, []byte(tagHash+"\n"), 0644); err != nil {
+	if err := SafeWrite(tagPath, []byte(tagHash+"\n"), 0o644); err != nil {
 		return err
 	}
 

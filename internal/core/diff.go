@@ -45,7 +45,7 @@ func Diff(staged bool) error {
 
 	if staged {
 		// --- Staged Diff: Compare HEAD (old) vs Index (new) ---
-		
+
 		for path, entry := range index {
 			indexHashHex := hex.EncodeToString(entry.Hash[:])
 			headEntry, inHead := headTree[path]
@@ -127,16 +127,22 @@ func printLineDiff(old, new string) {
 
 	// Use the optimized DiffLines function which handles hashing
 	diffs := diff.DiffLines(oldLines, newLines)
-	
+
 	for _, c := range diffs {
 		lines := c.Text
 		switch c.Operation {
 		case diff.INSERT:
-			for _, l := range lines { fmt.Printf("%s+ %s%s\n", colorGreen, l, colorReset) }
+			for _, l := range lines {
+				fmt.Printf("%s+ %s%s\n", colorGreen, l, colorReset)
+			}
 		case diff.DELETE:
-			for _, l := range lines { fmt.Printf("%s- %s%s\n", colorRed, l, colorReset) }
+			for _, l := range lines {
+				fmt.Printf("%s- %s%s\n", colorRed, l, colorReset)
+			}
 		case diff.EQUAL:
-			for _, l := range lines { fmt.Printf("  %s\n", l) }
+			for _, l := range lines {
+				fmt.Printf("  %s\n", l)
+			}
 		}
 	}
 }

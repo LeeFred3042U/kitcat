@@ -48,7 +48,6 @@ func MoveFile(src, dst string, force bool) error {
 
 	//  Update Index
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
-
 		// File move
 		if !info.IsDir() {
 			if entry, ok := index[src]; ok {

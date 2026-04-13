@@ -34,7 +34,7 @@ func handleCheckout(args []string) {
 		if err := core.CreateBranch(newBranch); err != nil {
 			die("failed to create branch: %v", err)
 		}
-		
+
 		if err := core.Checkout(newBranch, force); err != nil {
 			die("failed to checkout new branch: %v", err)
 		}

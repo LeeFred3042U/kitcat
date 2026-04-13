@@ -122,8 +122,8 @@ func Status() (string, error) {
 			}
 
 			// Executable bit comparison.
-			isExec := (info.Mode() & 0111) != 0
-			entryExec := (entry.Mode & 0111) != 0
+			isExec := (info.Mode() & 0o111) != 0
+			entryExec := (entry.Mode & 0o111) != 0
 			modeChanged := isExec != entryExec
 
 			hash, err := storage.HashFile(cleanPath)
@@ -168,7 +168,6 @@ func detectRenames(
 	index map[string]plumbing.IndexEntry,
 	headTree map[string]storage.TreeEntry,
 ) []string {
-
 	var results []string
 	usedDeleted := make(map[string]struct{})
 
@@ -270,21 +269,17 @@ func calculateSimilarity(a, b []byte) float64 {
 	return float64(intersection) / float64(union)
 }
 
-// getBranchName resolves current branch.
-// Falls back to detached state if HEAD contains a raw commit.
+// Default to detached HEAD to avoid implying branch semantics
+// when HEAD contains a raw commit hash.
 func getBranchName() string {
 	branch := "HEAD (detached)"
-
 	headContent, err := os.ReadFile(repo.HeadPath)
-	if err != nil {
-		return branch
+	if err == nil {
+		content := strings.TrimSpace(string(headContent))
+		if trimmed, ok := strings.CutPrefix(content, "ref: refs/heads/"); ok {
+			branch = trimmed
+		}
 	}
-
-	content := strings.TrimSpace(string(headContent))
-	if trimmed, ok := strings.CutPrefix(content, "ref: refs/heads/"); ok {
-		return trimmed
-	}
-
 	return branch
 }
 

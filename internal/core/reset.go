@@ -50,7 +50,7 @@ func Reset(commitStr string, mode int) error {
 		}
 	}
 
-	// INVARIANT: HEAD is updated ONLY after the index and working tree 
+	// INVARIANT: HEAD is updated ONLY after the index and working tree
 	// successfully reflect the target commit. Do not reorder this!
 	actionMsg := fmt.Sprintf("reset: moving to %s", commitStr)
 	if err := UpdateRef(commitObj.ID, actionMsg); err != nil {
@@ -70,7 +70,7 @@ func ReadTree(treeHash string) error {
 }
 
 // CheckoutTree compares the workspace vs the target tree and aligns them.
-// NOTE: Workspace updates are currently NOT transactional. Partial file 
+// NOTE: Workspace updates are currently NOT transactional. Partial file
 // updates may remain on disk if an error occurs mid-operation.
 func CheckoutTree(treeHash string) error {
 	targetTree, err := storage.ParseTree(treeHash)
@@ -91,15 +91,15 @@ func CheckoutTree(treeHash string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
 
-		perm := os.FileMode(0644)
+		perm := os.FileMode(0o644)
 		var modeVal uint32
 		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
-			if (modeVal & 0111) != 0 {
-				perm = 0755
+			if (modeVal & 0o111) != 0 {
+				perm = 0o755
 			}
 		}
 
@@ -117,7 +117,7 @@ func UpdateRef(newCommit string, actionMsg string) error {
 	if err != nil {
 		return fmt.Errorf("unable to read HEAD: %w", err)
 	}
-	
+
 	ref := strings.TrimSpace(string(headData))
 	var oldCommit string
 	var targetRefPath string
@@ -133,14 +133,14 @@ func UpdateRef(newCommit string, actionMsg string) error {
 		// Write to reflog BEFORE the atomic ref update for crash recovery
 		_ = ReflogAppend(targetRefPath, oldCommit, newCommit, actionMsg)
 
-		if err := SafeWrite(branchFile, []byte(newCommit), 0644); err != nil {
+		if err := SafeWrite(branchFile, []byte(newCommit), 0o644); err != nil {
 			return fmt.Errorf("failed to update branch ref: %w", err)
 		}
-		
+
 	} else {
 		oldCommit = ref
-		
-		if err := SafeWrite(headPath, []byte(newCommit), 0644); err != nil {
+
+		if err := SafeWrite(headPath, []byte(newCommit), 0o644); err != nil {
 			return fmt.Errorf("failed to update detached HEAD: %w", err)
 		}
 	}

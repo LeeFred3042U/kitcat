@@ -53,7 +53,7 @@ func Merge(branchToMerge string) error {
 	if mergeBase == currentHeadHash {
 		fmt.Printf("Updating %s..%s\n", currentHeadHash[:7], featureHeadHash[:7])
 		fmt.Println("Fast-forward")
-		
+
 		if err := UpdateBranchPointer(featureHeadHash); err != nil {
 			return fmt.Errorf("failed to update branch pointer: %w", err)
 		}
@@ -90,11 +90,11 @@ func Merge(branchToMerge string) error {
 	}
 
 	// 3. Write Merge State for the upcoming commit
-	SafeWrite(filepath.Join(repo.Dir, "MERGE_HEAD"), []byte(featureHeadHash), 0644)
-	
+	SafeWrite(filepath.Join(repo.Dir, "MERGE_HEAD"), []byte(featureHeadHash), 0o644)
+
 	currentBranch, _ := GetHeadState()
 	mergeMsg := fmt.Sprintf("Merge branch '%s' into '%s'\n", branchToMerge, currentBranch)
-	SafeWrite(filepath.Join(repo.Dir, "MERGE_MSG"), []byte(mergeMsg), 0644)
+	SafeWrite(filepath.Join(repo.Dir, "MERGE_MSG"), []byte(mergeMsg), 0o644)
 
 	// 4. Handle Conflicts UX
 	if len(plan.Conflicts) > 0 {

@@ -162,8 +162,8 @@ func AmendCommit(message string) (string, error) {
 	}
 
 	parents := []string{}
-	if head.Parent != "" {
-		parents = append(parents, head.Parent)
+	if len(parents) > 0 {
+		parents = append(parents, head.Parents...)
 	}
 
 	name, _, _ := GetConfig("user.name")

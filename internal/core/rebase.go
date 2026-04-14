@@ -101,8 +101,8 @@ func RebaseContinue() error {
 
 		// --- 3-WAY MERGE PREPARATION ---
 		baseTree := make(map[string]storage.TreeEntry)
-		if commitToApply.Parent != "" {
-			if baseCommit, err := storage.FindCommit(commitToApply.Parent); err == nil {
+		if len(commitToApply.Parents) > 0 {
+			if baseCommit, err := storage.FindCommit(commitToApply.Parents[0]); err == nil {
 				baseTree, _ = storage.ParseTree(baseCommit.TreeHash)
 			}
 		}
@@ -251,7 +251,7 @@ func Rebase(targetBranch string, interactive bool) error {
 		}
 		// Prepend to array because we traverse backwards, but need to replay forwards!
 		commitsToRebase = append([]models.Commit{c}, commitsToRebase...)
-		curr = c.Parent
+		curr = c.Parents[0]
 	}
 
 	if len(commitsToRebase) == 0 {

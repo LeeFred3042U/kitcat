@@ -106,11 +106,11 @@ func ReadCommits() ([]models.Commit, error) {
 		seen[curr.ID] = true
 
 		commits = append(commits, curr)
-		if curr.Parent == "" {
+		if len(curr.Parents) == 0 {
 			break
 		}
 
-		curr, err = FindCommit(curr.Parent)
+		curr, err = FindCommit(curr.Parents[0])
 		if err != nil {
 			break
 		}
@@ -195,7 +195,7 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 		case "tree":
 			c.TreeHash = parts[1]
 		case "parent":
-			c.Parent = parts[1]
+			c.Parents = append(c.Parents, parts[1])
 		case "author":
 			// Canonical format: Name <email> timestamp timezone
 			line := parts[1]
@@ -258,7 +258,7 @@ func FindMergeBase(h1, h2 string) (string, error) {
 		if err != nil {
 			break
 		}
-		curr = c.Parent
+		curr = c.Parents[0]
 	}
 
 	// Walk ancestors of h2 until a match is found.
@@ -271,7 +271,7 @@ func FindMergeBase(h1, h2 string) (string, error) {
 		if err != nil {
 			break
 		}
-		curr = c.Parent
+		curr = c.Parents[0]
 	}
 
 	return "", fmt.Errorf("no merge base found")

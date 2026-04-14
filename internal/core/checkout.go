@@ -1,11 +1,9 @@
 package core
 
 import (
-	"crypto/sha1"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,9 +152,9 @@ func CheckoutFile(filePath string) error {
 
 	// Safety check: refuse overwrite if file has local modifications or is untracked.
 	if _, err := os.Stat(filePath); err == nil {
-		currentHash, err := calculateHash(filePath)
+		currentHash, err := storage.HashFile(filePath)
 		if err != nil {
-			return fmt.Errorf("failed to calculate hash for safety check: %v", err)
+		    return fmt.Errorf("failed to calculate hash for safety check: %w", err)
 		}
 
 		index, err := storage.LoadIndex()
@@ -182,20 +180,4 @@ func CheckoutFile(filePath string) error {
 	}
 
 	return os.WriteFile(filePath, content, 0644)
-}
-
-// calculateHash computes a raw SHA-1 hash of file contents.
-// Used only for safety comparison with tracked index hashes.
-func calculateHash(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }

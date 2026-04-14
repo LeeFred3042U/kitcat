@@ -11,8 +11,9 @@
 *.out
 *.sh
 
-# Go module stuff – keep go.mod/sum (they're source)
-# (So nothing to ignore here)
+# Go module files (kept)
+# go.mod
+# go.sum
 
 # Editor & OS noise
 .DS_Store
@@ -24,25 +25,17 @@
 *.log
 *.txt
 
-# Personal/text files
+# Project / personal files
 hello.txt
-:est_kitcat.sh
-kitcat_test_repo
-.kitignore
-
-dump_code.sh
-kitcat_project_code.txt
 kitcat
 .kitcat
-kitkat 
-
-.kitkat
+.kitignore
 kitcat_bin
+kitcat_test_repo
+kitcat_project_code.txt
 dump.sh
-
-# exception
-!.ci/run_kitkat.sh
-kitcat
-dump.sh
+dump_code.sh
 verify
-dump.sh
+
+# Exceptions
+!.ci/run_kitcat.sh

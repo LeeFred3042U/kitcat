@@ -1,13 +1,11 @@
 package core
 
 import (
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
-)
 
-// Replace loadIndexForTest with a call to storage.LoadIndex() (which correctly uses plumbing.ReadIndex).
+	"github.com/LeeFred3042U/kitcat/internal/storage"
+)
 
 func TestMoveFile(t *testing.T) {
 	// Restores the current working directory
@@ -59,7 +57,7 @@ func TestMoveFile(t *testing.T) {
 	}
 
 	// Index should contain new file
-	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitcat", "index"))
+	idx, err := storage.LoadIndex()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +120,7 @@ func TestMoveFile_DestinationExists(t *testing.T) {
 	}
 
 	// Index should contain the destination file
-	idx, err := loadIndexForTest(filepath.Join(tmpDir, ".kitcat", "index"))
+	idx, err := storage.LoadIndex()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,18 +165,4 @@ func TestMoveFile_SamePath(t *testing.T) {
 	if err := MoveFile(f, f, true); err == nil {
 		t.Fatalf("expected error for same source and destination")
 	}
-}
-
-func loadIndexForTest(path string) (map[string]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var idx map[string]string
-	if err := json.Unmarshal(data, &idx); err != nil {
-		return nil, err
-	}
-
-	return idx, nil
 }

@@ -48,8 +48,6 @@ func SetupTestRepo(t *testing.T) (string, func()) {
 	// Create empty files required by storage functions
 	files := []string{
 		"index",
-		"commits.log",
-		filepath.Join("refs", "heads", "main"),
 	}
 
 	for _, f := range files {

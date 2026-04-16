@@ -42,7 +42,8 @@ func TestGrepBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write kitcat index (ONLY tracked files)
+	// Write a minimal index entry. Grep only checks path membership in the
+	// index, not blob content, so the hash value is irrelevant here.
 	index := map[string]string{
 		"main.go": "dummyhash",
 	}
@@ -65,6 +66,7 @@ func TestGrepBasic(t *testing.T) {
 		t.Fatalf("grep returned error: %v", err)
 	}
 
+	// Verify the flow of the below 4 code blocks
 	// Restore stdout
 	if err := w.Close(); err != nil {
 		t.Fatal(err)

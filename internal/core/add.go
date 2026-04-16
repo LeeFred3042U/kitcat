@@ -31,7 +31,7 @@ func AddFile(inputPath string) error {
 		return errors.New("not a kitcat repository (run `kitcat init`)")
 	}
 
-	info, err := os.Stat(absInputPath)
+	info, err := os.Lstat(absInputPath)
 	if os.IsNotExist(err) {
 		return fmt.Errorf("path does not exist: %s", inputPath)
 	}

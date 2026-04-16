@@ -6,6 +6,8 @@ go version
 
 echo "Testing kitcat..."
 
+go test ./... || { echo "Tests failed — aborting CI"; exit 1; }
+
 # Build kitcat binary
 go build -o kitcat ./cmd/main.go
 

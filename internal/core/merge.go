@@ -73,13 +73,35 @@ func Merge(branchToMerge string) error {
 	// --- 3-WAY MERGE ---
 	fmt.Printf("Auto-merging %s\n", branchToMerge)
 
-	baseCommit, _ := storage.FindCommit(mergeBase)
-	oursCommit, _ := storage.FindCommit(currentHeadHash)
-	theirsCommit, _ := storage.FindCommit(featureHeadHash)
-
-	baseTree, _ := storage.ParseTree(baseCommit.TreeHash)
-	oursTree, _ := storage.ParseTree(oursCommit.TreeHash)
-	theirsTree, _ := storage.ParseTree(theirsCommit.TreeHash)
+	baseCommit, err := storage.FindCommit(mergeBase)
+	if err != nil {
+		return fmt.Errorf("failed to load base commit %s: %w", mergeBase, err)
+	}
+	
+	oursCommit, err := storage.FindCommit(currentHeadHash)
+	if err != nil {
+		return fmt.Errorf("failed to load ours commit %s: %w", currentHeadHash, err)
+	}
+	
+	theirsCommit, err := storage.FindCommit(featureHeadHash)
+	if err != nil {
+		return fmt.Errorf("failed to load theirs commit %s: %w", featureHeadHash, err)
+	}
+	
+	baseTree, err := storage.ParseTree(baseCommit.TreeHash)
+	if err != nil {
+		return fmt.Errorf("failed to parse base tree (%s): %w", baseCommit.TreeHash, err)
+	}
+	
+	oursTree, err := storage.ParseTree(oursCommit.TreeHash)
+	if err != nil {
+		return fmt.Errorf("failed to parse ours tree (%s): %w", oursCommit.TreeHash, err)
+	}
+	
+	theirsTree, err := storage.ParseTree(theirsCommit.TreeHash)
+	if err != nil {
+		return fmt.Errorf("failed to parse theirs tree (%s): %w", theirsCommit.TreeHash, err)
+	}
 
 	// 1. Calculate Pure Merge Plan (Layer 1)
 	plan := merge.MergeTrees(baseTree, oursTree, theirsTree)

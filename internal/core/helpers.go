@@ -20,6 +20,9 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
+var errUntracked = errors.New("untracked")
+var errModified = errors.New("modified")
+
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.
 // It strips out comments (lines starting with #) before returning the text.
 func CaptureViaEditor(filename, initialContent string) (string, error) {
@@ -235,7 +238,7 @@ func IsWorkDirDirty() (bool, error) {
 
 		indexEntry, isTracked := index[cleanPath]
 		if !isTracked {
-			return fmt.Errorf("untracked")
+			return errUntracked
 		}
 
 		currentHash, hashErr := storage.HashFile(cleanPath)
@@ -245,12 +248,12 @@ func IsWorkDirDirty() (bool, error) {
 
 		indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
 		if currentHash != indexHashHex {
-			return fmt.Errorf("modified")
+			return errModified
 		}
 		return nil
 	})
 	if err != nil {
-		if err.Error() == "untracked" || err.Error() == "modified" {
+		if errors.Is(err, errUntracked) || errors.Is(err, errModified) {
 			return true, nil
 		}
 		return false, err
@@ -460,29 +463,6 @@ func copyRecursive(src, dst string) error {
 	}
 
 	return out.Chmod(info.Mode())
-}
-
-// checkoutIndexFromMap writes tree contents directly into the working directory.
-func checkoutIndexFromMap(tree map[string]storage.TreeEntry) error {
-	for path, entry := range tree {
-		content, err := storage.ReadObject(entry.Hash)
-		if err != nil {
-			return err
-		}
-
-		perm := os.FileMode(0o644)
-		var modeVal uint32
-		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
-			if (modeVal & 0o111) != 0 {
-				perm = 0o755
-			}
-		}
-
-		if err := os.WriteFile(path, content, perm); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ReflogAppend writes a standard git-style entry to the reflog.

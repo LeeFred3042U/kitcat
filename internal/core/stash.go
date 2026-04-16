@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"bytes"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
@@ -80,18 +81,18 @@ func StashDrop(index int) error {
 	if err := os.MkdirAll(repo.RefsDir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	var buf bytes.Buffer
 	for i := 0; i < len(newStashes); i++ {
-		if _, err := fmt.Fprintln(f, newStashes[i]); err != nil {
-			return err
-		}
+	    buf.WriteString(newStashes[i])
+	    buf.WriteByte('\n')
 	}
 
+	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	
 	fmt.Printf("Dropped refs/stash@{%d} (%s)\n", index, stashes[index][:7])
+	
 	return nil
 }
 

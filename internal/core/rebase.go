@@ -63,7 +63,10 @@ func RebaseContinue() error {
 
 		// Conflicts are resolved! Commit the paused step before continuing.
 		stoppedHash := strings.TrimSpace(string(stoppedHashBytes))
-		commitToApply, _ := storage.FindCommit(stoppedHash)
+		commitToApply, err := storage.FindCommit(stoppedHash)
+		if err != nil {
+		    return fmt.Errorf("failed to find stopped commit %s: %w", stoppedHash[:7], err)
+		}
 
 		if _, err := commitRebaseStep(commitToApply); err != nil {
 			return fmt.Errorf("failed to commit resolved rebase step: %w", err)
@@ -103,13 +106,27 @@ func RebaseContinue() error {
 		baseTree := make(map[string]storage.TreeEntry)
 		if len(commitToApply.Parents) > 0 {
 			if baseCommit, err := storage.FindCommit(commitToApply.Parents[0]); err == nil {
-				baseTree, _ = storage.ParseTree(baseCommit.TreeHash)
+				baseTree, err = storage.ParseTree(baseCommit.TreeHash)
+				if err != nil {
+				    return fmt.Errorf("failed to parse base tree (%s): %w", baseCommit.TreeHash, err)
+				}
 			}
 		}
 
-		oursCommit, _ := storage.GetLastCommit()
-		oursTree, _ := storage.ParseTree(oursCommit.TreeHash)
-		theirsTree, _ := storage.ParseTree(commitToApply.TreeHash)
+		oursCommit, err := storage.GetLastCommit()
+		if err != nil {
+		    return fmt.Errorf("failed to get last commit: %w", err)
+		}
+
+		oursTree, err := storage.ParseTree(oursCommit.TreeHash)
+		if err != nil {
+		    return fmt.Errorf("failed to parse ours tree (%s): %w", oursCommit.TreeHash, err)
+		}
+
+		theirsTree, err := storage.ParseTree(commitToApply.TreeHash)
+		if err != nil {
+		    return fmt.Errorf("failed to parse theirs tree (%s): %w", commitToApply.TreeHash, err)
+		}
 
 		// --- CALCULATE & APPLY MERGE ---
 		plan := merge.MergeTrees(baseTree, oursTree, theirsTree)

@@ -20,6 +20,10 @@ func MoveFile(src, dst string, force bool) error {
 	src = filepath.Clean(src)
 	dst = filepath.Clean(dst)
 
+	if src == dst {
+		return fmt.Errorf("source and destination are the same")
+	}
+	
 	if !IsSafePath(src) || !IsSafePath(dst) {
 		return fmt.Errorf("unsafe path")
 	}

@@ -217,15 +217,25 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 		return false, nil
 	}
 
+	isSymlink := info.Mode()&os.ModeSymlink != 0
+	var fileMode uint32
+	switch {
+	case isSymlink:
+		fileMode = 0120000
+	case info.Mode()&0111 != 0:
+		fileMode = 0100755
+	default:
+		fileMode = 0100644
+	}
+	
 	entry := plumbing.IndexEntry{
 		Path:      cleanPath,
-		Mode:      0100644,
+		Mode:      fileMode,
 		Size:      uint32(info.Size()),
 		MTimeSec:  uint32(info.ModTime().Unix()),
 		MTimeNSec: uint32(info.ModTime().Nanosecond()),
 	}
-
-	// If stat cache matches existing entry, skip hashing to avoid redundant IO.
+	
 	if existing, exists := index[cleanPath]; exists {
 		if existing.Size == entry.Size &&
 			existing.MTimeSec == entry.MTimeSec &&
@@ -233,10 +243,23 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 			return true, nil
 		}
 	}
-
-	content, err := os.ReadFile(fullPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to read %s: %w", fullPath, err)
+	
+	// Read content based on file type.
+	// For symlinks, content is the link target path stored as UTF-8 bytes.
+	// For regular files, content is the file bytes.
+	var content []byte
+	if isSymlink {
+		target, err := os.Readlink(fullPath)
+		if err != nil {
+			return false, fmt.Errorf("failed to read symlink %s: %w", fullPath, err)
+		}
+		content = []byte(target)
+	} else {
+		var err error
+		content, err = os.ReadFile(fullPath)
+		if err != nil {
+			return false, fmt.Errorf("failed to read %s: %w", fullPath, err)
+		}
 	}
 
 	hashStr, err := plumbing.HashAndWriteObject(content, "blob")

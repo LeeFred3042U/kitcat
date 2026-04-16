@@ -417,12 +417,21 @@ func GetHeadCommit() (models.Commit, error) {
 
 // copyRecursive copies a file or directory tree.
 func copyRecursive(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
+    info, err := os.Lstat(src) // Lstat so symlinks are not followed
+    if err != nil {
+        return err
+    }
 
-	if info.IsDir() {
+    // Reproduce symlinks as symlinks, not as copies of their targets.
+    if info.Mode()&os.ModeSymlink != 0 {
+        target, err := os.Readlink(src)
+        if err != nil {
+            return err
+        }
+        return os.Symlink(target, dst)
+    }
+
+    if info.IsDir() {
 		if err := os.MkdirAll(dst, info.Mode()); err != nil {
 			return err
 		}

@@ -95,16 +95,24 @@ func CheckoutTree(treeHash string) error {
 			return err
 		}
 
-		perm := os.FileMode(0o644)
 		var modeVal uint32
-		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err == nil {
-			if (modeVal & 0o111) != 0 {
+		fmt.Sscanf(entry.Mode, "%o", &modeVal)
+		
+		if modeVal == 0120000 {
+			// Symlink: content is the target path. Remove any existing
+			// file or stale symlink at this path before creating the new one.
+			os.Remove(path)
+			if err := os.Symlink(string(content), path); err != nil {
+				return err
+			}
+		} else {
+			perm := os.FileMode(0o644)
+			if modeVal&0o111 != 0 {
 				perm = 0o755
 			}
-		}
-
-		if err := os.WriteFile(path, content, perm); err != nil {
-			return err
+			if err := os.WriteFile(path, content, perm); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

@@ -90,10 +90,32 @@ func Checkout(target string, force bool) error {
 				return err
 			}
 
-			// Ensure directory exists before writing file.
-			if dir := filepath.Dir(path); dir != "." {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			// Parse mode before writing so symlinks are dispatched correctly.
+			var mode uint32
+			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
+				mode = 0100644
+			}
+			
+			if mode == 0120000 {
+				// Symlink: content is the target path.
+				// Remove any existing path entry before creating the symlink.
+				os.Remove(path)
+				if err := os.Symlink(string(content), path); err != nil {
+					return err
+				}
+			} else {
+				// Regular file: ensure parent directory exists.
+				if dir := filepath.Dir(path); dir != "." {
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						return fmt.Errorf("failed to create directory %s: %w", dir, err)
+					}
+				}
+				perm := os.FileMode(0644)
+				if mode&0111 != 0 {
+					perm = 0755
+				}
+				if err := os.WriteFile(path, content, perm); err != nil {
+					return err
 				}
 			}
 
@@ -103,16 +125,11 @@ func Checkout(target string, force bool) error {
 
 			// Convert hex blob hash into binary index hash.
 			hb, _ := storage.HexToHash(entry.Hash)
-
-			var mode uint32
-			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
-				mode = 0100644
-			}
-
+			
 			index[path] = plumbing.IndexEntry{
 				Path: path,
 				Hash: hb,
-				Mode: mode,
+				Mode: mode, // already parsed above
 			}
 		}
 		return nil
@@ -178,6 +195,12 @@ func CheckoutFile(filePath string) error {
 	if err != nil {
 		return err
 	}
-
+	
+	var modeVal uint32
+	fmt.Sscanf(entry.Mode, "%o", &modeVal)
+	if modeVal == 0120000 {
+		os.Remove(filePath)
+		return os.Symlink(string(content), filePath)
+	}
 	return os.WriteFile(filePath, content, 0644)
 }

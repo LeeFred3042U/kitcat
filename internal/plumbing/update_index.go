@@ -142,9 +142,11 @@ func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	// which is required for Git index parsing.
 	entrySize := 62 + len(e.Path) + 1
 	pad := 8 - (entrySize % 8)
-	for i := 0; i < pad; i++ {
-		if err := buf.WriteByte(0); err != nil {
-			return err
+	if pad != 8 {
+		for i := 0; i < pad; i++ {
+			if err := buf.WriteByte(0); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

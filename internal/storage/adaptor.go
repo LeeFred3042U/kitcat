@@ -240,13 +240,8 @@ func HashFile(path string) (string, error) {
 // FindMergeBase performs a simple ancestry traversal to locate the first
 // common ancestor between two commits.
 //
-// The algorithm records all ancestors of the first commit and then walks
+// The algo records all ancestors of the first commit and then walks
 // the ancestry of the second commit until a matching commit ID is found.
-//
-// Limitations:
-//   - Assumes linear history (single parent)
-//   - Does not perform full DAG merge-base computation
-//   - Stops traversal when a commit cannot be resolved
 func FindMergeBase(h1, h2 string) (string, error) {
 	// Record all ancestors of h1.
 	ancestors := make(map[string]bool)
@@ -255,7 +250,7 @@ func FindMergeBase(h1, h2 string) (string, error) {
 	for curr != "" {
 		ancestors[curr] = true
 		c, err := FindCommit(curr)
-		if err != nil {
+		if err != nil || len(c.Parents) == 0 {
 			break
 		}
 		curr = c.Parents[0]
@@ -268,7 +263,7 @@ func FindMergeBase(h1, h2 string) (string, error) {
 			return curr, nil
 		}
 		c, err := FindCommit(curr)
-		if err != nil {
+		if err != nil || len(c.Parents) == 0 {
 			break
 		}
 		curr = c.Parents[0]

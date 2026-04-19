@@ -241,15 +241,41 @@ func IsWorkDirDirty() (bool, error) {
 			return errUntracked
 		}
 
-		currentHash, hashErr := storage.HashFile(cleanPath)
-		if hashErr != nil {
-			return hashErr
-		}
+	// Use os.Lstat directly rather than relying on Walk's info, to guarantee
+	// symlink detection is not affected by filesystem or Walk implementation
+	// differences across platforms.
+	lfi, lstatErr := os.Lstat(cleanPath)
+	if lstatErr != nil {
+	    return lstatErr
+	}
 
-		indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
-		if currentHash != indexHashHex {
-			return errModified
+	var currentHash string
+	if lfi.Mode()&os.ModeSymlink != 0 {
+	    // For symlinks, hash the link target PATH string (what the blob stores),
+	    // not the target file's content (what os.ReadFile would return by
+	    // following the link). HashFile uses os.ReadFile which follows symlinks
+	    // and would always report a mismatch for correctly staged symlinks.
+	    target, readlinkErr := os.Readlink(cleanPath)
+	    if readlinkErr != nil {
+	        return readlinkErr
+	    }
+    var hashErr error
+    currentHash, hashErr = plumbing.HashAndWriteObject([]byte(target), "blob")
+	if hashErr != nil {
+	    return hashErr
 		}
+	} else {
+	    var hashErr error
+	    currentHash, hashErr = storage.HashFile(cleanPath)
+	    if hashErr != nil {
+	        return hashErr
+	    }
+	}
+
+	indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
+	if currentHash != indexHashHex {
+	    return errModified
+	}
 		return nil
 	})
 	if err != nil {

@@ -98,7 +98,11 @@ func Checkout(target string, force bool) error {
 			
 			if mode == 0120000 {
 				// Symlink: content is the target path.
-				// Remove any existing path entry before creating the symlink.
+				if dir := filepath.Dir(path); dir != "." {
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						return fmt.Errorf("failed to create directory %s: %w", dir, err)
+					}
+				}
 				os.Remove(path)
 				if err := os.Symlink(string(content), path); err != nil {
 					return err
@@ -110,6 +114,7 @@ func Checkout(target string, force bool) error {
 						return fmt.Errorf("failed to create directory %s: %w", dir, err)
 					}
 				}
+				os.Remove(path) // Prevent os.WriteFile from following stale symlinks
 				perm := os.FileMode(0644)
 				if mode&0111 != 0 {
 					perm = 0755
@@ -117,10 +122,6 @@ func Checkout(target string, force bool) error {
 				if err := os.WriteFile(path, content, perm); err != nil {
 					return err
 				}
-			}
-
-			if err := os.WriteFile(path, content, 0644); err != nil {
-				return err
 			}
 
 			// Convert hex blob hash into binary index hash.
@@ -199,8 +200,8 @@ func CheckoutFile(filePath string) error {
 	var modeVal uint32
 	fmt.Sscanf(entry.Mode, "%o", &modeVal)
 	if modeVal == 0120000 {
-		os.Remove(filePath)
-		return os.Symlink(string(content), filePath)
+	    os.Remove(filePath)
+	    return os.Symlink(string(content), filePath)
 	}
 	return os.WriteFile(filePath, content, 0644)
 }

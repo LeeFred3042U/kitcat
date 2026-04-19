@@ -99,13 +99,13 @@ func CheckoutTree(treeHash string) error {
 		fmt.Sscanf(entry.Mode, "%o", &modeVal)
 		
 		if modeVal == 0120000 {
-			// Symlink: content is the target path. Remove any existing
-			// file or stale symlink at this path before creating the new one.
+			// Symlink: content is the target path. 
 			os.Remove(path)
 			if err := os.Symlink(string(content), path); err != nil {
 				return err
 			}
 		} else {
+			os.Remove(path)
 			perm := os.FileMode(0o644)
 			if modeVal&0o111 != 0 {
 				perm = 0o755

@@ -226,13 +226,24 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 	return c, nil
 }
 
-// HashFile reads a file from disk, creates a blob object from its
-// contents, stores it in the object database, and returns the resulting
-// object hash.
 func HashFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err
+	}
+
+	var content []byte
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return "", err
+		}
+		content = []byte(target)
+	} else {
+		content, err = os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
 	}
 	return plumbing.HashAndWriteObject(content, "blob")
 }

@@ -9,7 +9,10 @@ import (
 
 func handleLog(args []string) {
 	fs := flag.NewFlagSet("log", flag.ExitOnError)
+
+	// flags
 	oneline := fs.Bool("oneline", false, "show compact log")
+	limit := fs.Int("n", 0, "limit number of commits")
 
 	_ = fs.Parse(args)
 
@@ -27,6 +30,11 @@ func handleLog(args []string) {
 			fmt.Printf("%s %s\n", short, c.Message)
 			continue
 		}
+
+		if *limit > 0 && len(commits) > *limit {
+			commits = commits[:*limit]
+		}
+		fs.IntVar(limit, "max-count", 0, "limit commits")
 
 		fmt.Printf("commit %s\n", c.ID)
 		fmt.Printf("Author: %s <%s>\n", c.AuthorName, c.AuthorEmail)

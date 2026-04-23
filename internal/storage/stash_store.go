@@ -184,3 +184,51 @@ func ClearStash() error {
 	// Truncate the file to size 0.
 	return os.Truncate(getStashPath(), 0)
 }
+
+
+func DropStash(index int) error {
+	stashes, err := ListStashes()
+	if err != nil {
+		return err
+	}
+
+	if len(stashes) == 0 {
+		return ErrNoStash
+	}
+
+	if index < 0 || index >= len(stashes) {
+		return fmt.Errorf("invalid stash index")
+	}
+
+	// Lock file
+	lockFile, err := lock(getStashPath())
+	if err != nil {
+		return err
+	}
+	defer unlock(lockFile)
+
+	tmpPath := getStashPath() + ".tmp"
+	tmpFile, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	// Rewrite everything except the removed index
+	for i := len(stashes) - 1; i >= 0; i-- {
+		if i == index {
+			continue
+		}
+		if _, err := fmt.Fprintln(tmpFile, stashes[i]); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	return os.Rename(tmpPath, getStashPath())
+}

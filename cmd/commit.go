@@ -29,18 +29,26 @@ func handleCommit(args []string) {
 	fs := flag.NewFlagSet("commit", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
+	// Flags
 	msg := fs.String("m", "", "Commit message")
 	amend := fs.Bool("amend", false, "Amend the last commit")
 	all := fs.Bool("a", false, "Stage all modified/deleted files")
+	noEdit := fs.Bool("no-edit", false, "reuse previous commit message")
 
 	if err := fs.Parse(cleanArgs); err != nil {
 		os.Exit(exitUsage)
 	}
 
-	if *amend && *msg == "" {
-		if head, err := core.GetHeadCommit(); err == nil {
-			*msg = head.Message
+	if *amend && (*noEdit || *msg == "") {
+		head, err := core.GetHeadCommit()
+		if err != nil {
+			die("failed to get HEAD commit: %v", err)
 		}
+		*msg = head.Message
+	}
+
+	if *noEdit && !*amend {
+		die("--no-edit can only be used with --amend")
 	}
 
 	var hash string

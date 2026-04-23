@@ -51,7 +51,7 @@ func TestStashPushAndPop(t *testing.T) {
 		t.Errorf("after StashPush: expected %q, got %q", "original", string(afterPush))
 	}
 
-	if err := core.StashPop(); err != nil {
+	if err := core.StashPop(0); err != nil {
 		t.Fatalf("StashPop: %v", err)
 	}
 

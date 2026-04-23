@@ -1,7 +1,7 @@
 package main
 
 import (
-	
+	"flag"
 	"fmt"
 	"os"
 
@@ -11,17 +11,51 @@ import (
 
 func handleStash(args []string) {
 	if len(args) == 0 {
+		// default = push
 		if err := core.Stash(); err != nil {
 			die("%v", err)
 		}
 		return
 	}
 
-	subCmd := args[0]
+	sub := args[0]
+	rest := args[1:]
 
-	switch subCmd {
+	switch sub {
+
+	case "push":
+		fs := flag.NewFlagSet("stash push", flag.ExitOnError)
+		msg := fs.String("m", "", "stash message")
+		_ = fs.Parse(rest)
+
+		if err := core.StashPush(*msg); err != nil {
+			die("%v", err)
+		}
+
 	case "pop":
-		if err := core.StashPop(); err != nil {
+		idx := 0
+		if len(rest) > 0 {
+			idx = parseStashIndex(rest[0])
+		}
+		if err := core.StashPop(idx); err != nil {
+			die("%v", err)
+		}
+
+	case "apply":
+		idx := 0
+		if len(rest) > 0 {
+			idx = parseStashIndex(rest[0])
+		}
+		if err := core.StashApply(idx); err != nil {
+			die("%v", err)
+		}
+
+	case "drop":
+		idx := 0
+		if len(rest) > 0 {
+			idx = parseStashIndex(rest[0])
+		}
+		if err := core.StashDrop(idx); err != nil {
 			die("%v", err)
 		}
 
@@ -35,26 +69,11 @@ func handleStash(args []string) {
 			die("%v", err)
 		}
 
-	case "apply":
-		idx := 0
-		if len(args) > 1 {
-			idx = parseStashIndex(args[1])
-		}
-		if err := core.StashApply(idx); err != nil {
-			die("%v", err)
-		}
-
-	case "drop":
-		idx := 0
-		if len(args) > 1 {
-			idx = parseStashIndex(args[1])
-		}
-		if err := core.StashDrop(idx); err != nil {
-			die("%v", err)
-		}
-
 	default:
-		fmt.Fprintf(os.Stderr, "Usage: %s stash [apply|drop|pop|list|clear]\n", app.Name)
+		fmt.Fprintf(os.Stderr,
+			"Usage: %s stash [push [-m msg] | pop [stash@{n}] | apply [stash@{n}] | drop [stash@{n}] | list | clear]\n",
+			app.Name,
+		)
 		os.Exit(exitUsage)
 	}
 }

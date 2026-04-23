@@ -125,10 +125,7 @@ func IsBranch(name string) bool {
 	return false
 }
 
-// ListBranches prints all local branches.
-//
-// The currently active branch is highlighted with a leading "*".
-func ListBranches() error {
+func ListBranches(verbose bool) error {
 	currentBranch, err := GetHeadState()
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid HEAD format") {
@@ -144,10 +141,40 @@ func ListBranches() error {
 	}
 
 	for _, b := range branches {
-		if b.Name() == currentBranch {
-			fmt.Printf("* %s%s%s\n", colorGreen, b.Name(), colorReset)
+		name := b.Name()
+
+		isCurrent := name == currentBranch
+
+		// Non-verbose
+		if !verbose {
+			if isCurrent {
+				fmt.Printf("* %s%s%s\n", colorGreen, name, colorReset)
+			} else {
+				fmt.Printf("  %s\n", name)
+			}
+			continue
+		}
+
+		// verbose mode
+		hash, err := storage.GetRef(filepath.Join("refs/heads", name))
+		if err != nil {
+			return err
+		}
+
+		commit, err := storage.FindCommit(hash)
+		if err != nil {
+			return err
+		}
+
+		short := hash
+		if len(short) > 7 {
+			short = short[:7]
+		}
+
+		if isCurrent {
+			fmt.Printf("* %s%s%s %s %s\n", colorGreen, name, colorReset, short, commit.Message)
 		} else {
-			fmt.Printf("  %s\n", b.Name())
+			fmt.Printf("  %s %s %s\n", name, short, commit.Message)
 		}
 	}
 

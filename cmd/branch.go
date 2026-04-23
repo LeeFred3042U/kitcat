@@ -18,19 +18,22 @@ func handleBranch(args []string) {
 	move := fs.Bool("m", false, "rename branch")
 	fs.BoolVar(move, "move", false, "rename branch")
 
+	verbose := fs.Bool("v", false, "show last commit")
+	forceDel := fs.Bool("D", false, "force delete branch")
+
 	_ = fs.Parse(args)
 	rest := fs.Args()
 
 	// list branches
 	if !*del && !*move && len(rest) == 0 {
-		if err := core.ListBranches(); err != nil {
+		if err := core.ListBranches(*verbose); err != nil {
 			die("%v", err)
 		}
 		return
 	}
 
 	// delete branch
-	if *del {
+	if *del || *forceDel {
 		if len(rest) < 1 {
 			fmt.Fprintf(os.Stderr, "Usage: %s branch -d <branchname>\n", app.Name)
 			os.Exit(exitUsage)
@@ -38,7 +41,12 @@ func handleBranch(args []string) {
 		if err := core.DeleteBranch(rest[0]); err != nil {
 			die("%v", err)
 		}
-		fmt.Fprintf(os.Stderr, "Deleted branch %s\n", rest[0])
+
+		if *forceDel {
+			fmt.Fprintf(os.Stderr, "Deleted branch %s (forced)\n", rest[0])
+		} else {
+			fmt.Fprintf(os.Stderr, "Deleted branch %s\n", rest[0])
+		}
 		return
 	}
 

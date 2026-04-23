@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/storage"
+	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 )
 
 const (
@@ -156,4 +157,52 @@ func UpdateRef(newCommit string, actionMsg string) error {
 	// Always write HEAD reflog last
 	_ = ReflogAppend("HEAD", oldCommit, newCommit, actionMsg)
 	return nil
+}
+
+func UnstageFile(commitStr string, paths []string) error {
+	if commitStr == "" || commitStr == "HEAD" {
+		hash, err := ResolveHead()
+		if err != nil {
+			return fmt.Errorf("could not resolve HEAD: %w", err)
+		}
+		commitStr = hash
+	} else {
+		branchPath := filepath.Join(".kitcat", "refs", "heads", commitStr)
+		if b, err := os.ReadFile(branchPath); err == nil {
+			commitStr = strings.TrimSpace(string(b))
+		}
+	}
+
+	commitObj, err := storage.FindCommit(commitStr)
+	if err != nil {
+		return fmt.Errorf("invalid commit %s: %w", commitStr, err)
+	}
+
+	targetTree, err := storage.ParseTree(commitObj.TreeHash)
+	if err != nil {
+		return err
+	}
+
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		for _, path := range paths {
+			if entry, exists := targetTree[path]; exists {
+				var mode uint32
+				fmt.Sscanf(entry.Mode, "%o", &mode)
+
+				hb, err := storage.HexToHash(entry.Hash)
+				if err != nil {
+					return err
+				}
+
+				index[path] = plumbing.IndexEntry{
+					Path: path,
+					Hash: hb,
+					Mode: mode,
+				}
+			} else {
+				delete(index, path)
+			}
+		}
+		return nil
+	})
 }

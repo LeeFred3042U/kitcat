@@ -201,19 +201,25 @@ func StashPush(message string) error {
 	return nil
 }
 
-// StashPop applies the most recent stash to the working directory and removes it.
-func StashPop() error {
+func StashPop(index int) error {
 	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
 		return fmt.Errorf("fatal: current directory or any of the parent directories is not a %s repository.", app.Name)
 	}
 
-	stashHash, err := storage.PopStash()
+	stashes, err := storage.ListStashes()
 	if err != nil {
-		if err == storage.ErrNoStash {
-			return fmt.Errorf("no stash entries found")
-		}
-		return fmt.Errorf("failed to pop stash: %w", err)
+		return err
 	}
+
+	if len(stashes) == 0 {
+		return fmt.Errorf("no stash entries found")
+	}
+
+	if index < 0 || index >= len(stashes) {
+		return fmt.Errorf("invalid stash index")
+	}
+
+	stashHash := stashes[index]
 
 	stashCommit, err := storage.FindCommit(stashHash)
 	if err != nil {
@@ -225,18 +231,19 @@ func StashPop() error {
 		return fmt.Errorf("failed to check working directory status: %w", err)
 	}
 	if isDirty {
-		// If dirty, push the stash back so data isn't lost
-		storage.PushStash(stashHash)
 		return fmt.Errorf("error: your local changes would be overwritten by stash pop\nPlease commit your changes or stash them before you pop")
 	}
 
 	if err := UpdateWorkspaceAndIndex(stashHash); err != nil {
-		storage.PushStash(stashHash) // Revert the pop on failure
 		return fmt.Errorf("failed to apply stash: %w", err)
 	}
 
+	if err := storage.DropStash(index); err != nil {
+		return fmt.Errorf("failed to drop stash: %w", err)
+	}
+
 	fmt.Printf("On branch %s\n", getCurrentBranchName())
-	fmt.Printf("Dropped refs/stash@{0} (%s)\n", stashCommit.ID[:7])
+	fmt.Printf("Dropped stash@{%d} (%s)\n", index, stashCommit.ID[:7])
 
 	return nil
 }

@@ -20,12 +20,29 @@ func handleReset(args []string) {
 		os.Exit(exitUsage)
 	}
 
+	fsArgs := fs.Args()
+
+	for i, arg := range args {
+		if arg == "--" {
+			paths := args[i+1:]
+
+			commit := "HEAD"
+			if len(fsArgs) > 0 {
+				commit = fsArgs[0]
+			}
+
+			if err := core.UnstageFile(commit, paths); err != nil {
+				die("%v", err)
+			}
+			return
+		}
+	}
+
 	if *hard && *soft {
 		fmt.Fprintln(os.Stderr, "fatal: --hard and --soft are mutually exclusive")
 		os.Exit(exitUsage)
 	}
 
-	fsArgs := fs.Args()
 	commit := "HEAD"
 	if len(fsArgs) > 0 {
 		commit = fsArgs[0]

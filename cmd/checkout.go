@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -9,43 +10,37 @@ import (
 )
 
 func handleCheckout(args []string) {
-	force := false
-	var cleanArgs []string
+	fs := flag.NewFlagSet("checkout", flag.ExitOnError)
 
-	for _, arg := range args {
-		if arg == "-f" || arg == "--force" {
-			force = true
-		} else {
-			cleanArgs = append(cleanArgs, arg)
-		}
-	}
+	force := fs.Bool("f", false, "force checkout")
+	fs.BoolVar(force, "force", false, "force checkout")
 
-	if len(cleanArgs) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s checkout [-f] <branch> | [-f] -b <new_branch>\n", app.Name)
-		os.Exit(exitUsage)
-	}
+	newBranch := fs.String("b", "", "create and switch to new branch")
 
-	if cleanArgs[0] == "-b" {
-		if len(cleanArgs) < 2 {
-			fmt.Fprintf(os.Stderr, "Usage: %s checkout [-f] -b <new_branch>\n", app.Name)
-			os.Exit(exitUsage)
-		}
-		newBranch := cleanArgs[1]
-		if err := core.CreateBranch(newBranch); err != nil {
+	_ = fs.Parse(args)
+	rest := fs.Args()
+
+	if *newBranch != "" {
+		if err := core.CreateBranch(*newBranch); err != nil {
 			die("failed to create branch: %v", err)
 		}
-
-		if err := core.Checkout(newBranch, force); err != nil {
+		if err := core.Checkout(*newBranch, *force); err != nil {
 			die("failed to checkout new branch: %v", err)
 		}
-		fmt.Fprintf(os.Stderr, "Switched to a new branch '%s'\n", newBranch)
+		fmt.Fprintf(os.Stderr, "Switched to a new branch '%s'\n", *newBranch)
 		return
 	}
 
-	arg := cleanArgs[0]
-	if err := core.Checkout(arg, force); err != nil {
+	if len(rest) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: %s checkout [-f] <branch>\n", app.Name)
+		os.Exit(exitUsage)
+	}
+
+	target := rest[0]
+
+	if err := core.Checkout(target, *force); err != nil {
 		die("%v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Checked out '%s'\n", arg)
+	fmt.Fprintf(os.Stderr, "Checked out '%s'\n", target)
 }

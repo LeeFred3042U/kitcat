@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -9,34 +10,39 @@ import (
 )
 
 func handleRebase(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "Usage: %s rebase <branch> [-i | --abort | --continue]\n", app.Name)
-		os.Exit(exitUsage)
-	}
+	fs := flag.NewFlagSet("rebase", flag.ExitOnError)
 
-	arg := args[0]
+	interactive := fs.Bool("i", false, "interactive rebase")
+	fs.BoolVar(interactive, "interactive", false, "interactive rebase")
 
-	if arg == "--abort" {
+	abort := fs.Bool("abort", false, "abort rebase")
+	cont := fs.Bool("continue", false, "continue rebase")
+
+	_ = fs.Parse(args)
+	rest := fs.Args()
+
+	if *abort {
 		if err := core.RebaseAbort(); err != nil {
 			die("%v", err)
 		}
 		return
 	}
-	if arg == "--continue" {
+
+	if *cont {
 		if err := core.RebaseContinue(); err != nil {
 			die("%v", err)
 		}
 		return
 	}
 
-	interactive := false
-	target := arg
-
-	if len(args) > 1 && (args[1] == "-i" || args[1] == "--interactive") {
-		interactive = true
+	if len(rest) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: %s rebase <branch> [-i]\n", app.Name)
+		os.Exit(exitUsage)
 	}
 
-	if err := core.Rebase(target, interactive); err != nil {
+	target := rest[0]
+
+	if err := core.Rebase(target, *interactive); err != nil {
 		die("%v", err)
 	}
 }

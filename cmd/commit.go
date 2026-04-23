@@ -62,9 +62,6 @@ func handleCommit(args []string) {
 		die("commit failed: %v", err)
 	}
 
-	if len(hash) >= 7 {
-		fmt.Printf("[%s] %s\n", hash[:7], *msg)
-	} else {
-		fmt.Printf("[%s] %s\n", hash, *msg)
-	}
+	quiet := addQuietFlag(fs)
+	printIfNotQuiet(*quiet, "[%s] %s\n", shortHash(hash), *msg)
 }

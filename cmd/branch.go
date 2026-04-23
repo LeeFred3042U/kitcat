@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -9,39 +10,59 @@ import (
 )
 
 func handleBranch(args []string) {
-	if len(args) == 0 {
+	fs := flag.NewFlagSet("branch", flag.ExitOnError)
+
+	del := fs.Bool("d", false, "delete branch")
+	fs.BoolVar(del, "delete", false, "delete branch")
+
+	move := fs.Bool("m", false, "rename branch")
+	fs.BoolVar(move, "move", false, "rename branch")
+
+	_ = fs.Parse(args)
+	rest := fs.Args()
+
+	// list branches
+	if !*del && !*move && len(rest) == 0 {
 		if err := core.ListBranches(); err != nil {
 			die("%v", err)
 		}
 		return
 	}
 
-	if args[0] == "-d" || args[0] == "--delete" {
-		if len(args) < 2 {
+	// delete branch
+	if *del {
+		if len(rest) < 1 {
 			fmt.Fprintf(os.Stderr, "Usage: %s branch -d <branchname>\n", app.Name)
 			os.Exit(exitUsage)
 		}
-		if err := core.DeleteBranch(args[1]); err != nil {
+		if err := core.DeleteBranch(rest[0]); err != nil {
 			die("%v", err)
 		}
-		fmt.Fprintf(os.Stderr, "Deleted branch %s\n", args[1])
+		fmt.Fprintf(os.Stderr, "Deleted branch %s\n", rest[0])
 		return
 	}
 
-	if args[0] == "-m" || args[0] == "--move" {
-		if len(args) < 2 {
+	// rename current branch
+	if *move {
+		if len(rest) < 1 {
 			fmt.Fprintf(os.Stderr, "Usage: %s branch -m <newname>\n", app.Name)
 			os.Exit(exitUsage)
 		}
-		if err := core.RenameCurrentBranch(args[1]); err != nil {
+		if err := core.RenameCurrentBranch(rest[0]); err != nil {
 			die("%v", err)
 		}
-		fmt.Fprintf(os.Stderr, "Renamed current branch to %s\n", args[1])
+		fmt.Fprintf(os.Stderr, "Renamed current branch to %s\n", rest[0])
 		return
 	}
 
-	if err := core.CreateBranch(args[0]); err != nil {
+	// create branch
+	if len(rest) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: %s branch <branchname>\n", app.Name)
+		os.Exit(exitUsage)
+	}
+
+	if err := core.CreateBranch(rest[0]); err != nil {
 		die("%v", err)
 	}
-	fmt.Fprintf(os.Stderr, "Created branch %s\n", args[0])
+	fmt.Fprintf(os.Stderr, "Created branch %s\n", rest[0])
 }

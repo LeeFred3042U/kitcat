@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -9,12 +10,17 @@ import (
 )
 
 func handleMerge(args []string) {
-	if len(args) < 1 {
+	fs := flag.NewFlagSet("merge", flag.ExitOnError)
+	quiet := addQuietFlag(fs)
+
+	rest := fs.Args()
+
+	if len(rest) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: %s merge <branch> | --abort\n", app.Name)
 		os.Exit(exitUsage)
 	}
 
-	arg := args[0]
+	arg := rest[0]
 
 	if arg == "--abort" {
 		if err := core.MergeAbort(); err != nil {
@@ -26,4 +32,6 @@ func handleMerge(args []string) {
 	if err := core.Merge(arg); err != nil {
 		die("%v", err)
 	}
+
+	printIfNotQuiet(*quiet, "Merge completed\n")
 }

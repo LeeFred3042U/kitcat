@@ -3,8 +3,6 @@ package core
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"bytes"
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
@@ -55,46 +53,46 @@ func StashApply(index int) error {
 }
 
 // StashDrop removes the stash at the given index (0 = newest) from the stack.
-func StashDrop(index int) error {
-	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
-		return fmt.Errorf("fatal: not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
-	}
-
-	stashes, err := storage.ListStashes()
-	if err != nil {
-		return fmt.Errorf("failed to list stashes: %w", err)
-	}
-	if index < 0 || index >= len(stashes) {
-		return fmt.Errorf("invalid stash index: %d", index)
-	}
-
-	// Remove the stash at the given index
-	newStashes := make([]string, 0, len(stashes)-1)
-	for i, hash := range stashes {
-		if i != index {
-			newStashes = append(newStashes, hash)
-		}
-	}
-
-	// Write the new stash list back to the file (preserve order: 0 = newest)
-	path := filepath.Join(repo.RefsDir, "stash")
-	if err := os.MkdirAll(repo.RefsDir, 0o755); err != nil {
-		return err
-	}
-	var buf bytes.Buffer
-	for i := 0; i < len(newStashes); i++ {
-	    buf.WriteString(newStashes[i])
-	    buf.WriteByte('\n')
-	}
-
-	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
-		return err
-	}
-	
-	fmt.Printf("Dropped refs/stash@{%d} (%s)\n", index, stashes[index][:7])
-	
-	return nil
-}
+//func StashDrop(index int) error {
+//	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
+//		return fmt.Errorf("fatal: not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
+//	}
+//
+//	stashes, err := storage.ListStashes()
+//	if err != nil {
+//		return fmt.Errorf("failed to list stashes: %w", err)
+//	}
+//	if index < 0 || index >= len(stashes) {
+//		return fmt.Errorf("invalid stash index: %d", index)
+//	}
+//
+//	// Remove the stash at the given index
+//	newStashes := make([]string, 0, len(stashes)-1)
+//	for i, hash := range stashes {
+//		if i != index {
+//			newStashes = append(newStashes, hash)
+//		}
+//	}
+//
+//	// Write the new stash list back to the file (preserve order: 0 = newest)
+//	path := filepath.Join(repo.RefsDir, "stash")
+//	if err := os.MkdirAll(repo.RefsDir, 0o755); err != nil {
+//		return err
+//	}
+//	var buf bytes.Buffer
+//	for i := 0; i < len(newStashes); i++ {
+//	    buf.WriteString(newStashes[i])
+//	    buf.WriteByte('\n')
+//	}
+//
+//	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
+//		return err
+//	}
+//	
+//	fmt.Printf("Dropped refs/stash@{%d} (%s)\n", index, stashes[index][:7])
+//	
+//	return nil
+//}
 
 // StashPush saves the current working directory and index state to the stash stack.
 // It creates a "WIP" commit with an optional custom message and performs a hard reset

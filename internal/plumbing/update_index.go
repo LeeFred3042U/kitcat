@@ -71,83 +71,95 @@ func UpdateIndex(entries []IndexEntry, indexPath string) error {
 	return os.WriteFile(indexPath, buf.Bytes(), 0o644)
 }
 
-// writeEntry encodes a single IndexEntry into its binary representation
-// and appends it to the provided buffer.
+// writeEntry serializes a single index entry to the buffer using
+// the Git index v2 binary layout
 //
-// The encoding follows the Git index v2 specification:
+// Layout:
+//   [stat data][object id][flags][path][NUL][padding]
 //
-//   - Fixed-size stat metadata fields
-//   - 20-byte object hash
-//   - Flags containing stage bits and truncated path length
-//   - Null-terminated path string
-//   - Padding to ensure 8-byte alignment
+// Flags:
+//   - lower 12 bits: truncated path length
+//   - upper 2 bits: stage (merge state)
 //
-// Correct alignment is required so index readers can reliably parse
-// consecutive entries.
+// Entries are padded to 8-byte alignment
 func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
-	// Fixed-size stat metadata is encoded in big-endian to match Git’s binary format.
-	if err := binary.Write(buf, binary.BigEndian, e.CTimeSec); err != nil {
-		return err
+	// statBlock mirrors the fixed-width stat section of a Git index v2 entry
+	// Field order and sizes must match the on-disk specification exactly
+	type statBlock struct {
+		CTimeSec  uint32
+		CTimeNSec uint32
+		MTimeSec  uint32
+		MTimeNSec uint32
+		Dev       uint32
+		Ino       uint32
+		Mode      uint32
+		UID       uint32
+		GID       uint32
+		Size      uint32
 	}
-	if err := binary.Write(buf, binary.BigEndian, e.CTimeNSec); err != nil {
-		return err
+
+	// Populate stat block from index entry
+	// This isolates fixed-size metadata from variable-length fields
+	sb := statBlock{
+		e.CTimeSec,
+		e.CTimeNSec,
+		e.MTimeSec,
+		e.MTimeNSec,
+		e.Dev,
+		e.Ino,
+		e.Mode,
+		e.UID,
+		e.GID,
+		e.Size,
 	}
-	if err := binary.Write(buf, binary.BigEndian, e.MTimeSec); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.MTimeNSec); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.Dev); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.Ino); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.Mode); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.UID); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.GID); err != nil {
-		return err
-	}
-	if err := binary.Write(buf, binary.BigEndian, e.Size); err != nil {
+
+	// Serialize stat block in big-endian order as required by Git index format
+	if err := binary.Write(buf, binary.BigEndian, sb); err != nil {
 		return err
 	}
 
+	// Write object ID (20 bytes)
 	if _, err := buf.Write(e.Hash[:]); err != nil {
 		return err
 	}
 
-	// Path length field is limited to 12 bits in index v2; values beyond
-	// this are capped while the full path string is still written.
+	// Encode flags:
+	//   bits 12–13: stage (0–3)
+	//   bits 0–11 : path length (capped at 0xFFF)
 	nameLen := len(e.Path)
 	if nameLen > 0xFFF {
 		nameLen = 0xFFF
 	}
-	if err := binary.Write(buf, binary.BigEndian, uint16(nameLen)); err != nil {
+	stage := uint16(e.Stage & 0x3)
+	length := uint16(nameLen)
+	if length > 0x0FFF {
+		length = 0x0FFF
+	}
+	
+	flags := (stage << 12) | (length & 0x0FFF)
+
+	if err := binary.Write(buf, binary.BigEndian, flags); err != nil {
 		return err
 	}
 
+	// Write path (NUL-terminated).
 	if _, err := buf.WriteString(e.Path); err != nil {
 		return err
 	}
 	if err := buf.WriteByte(0); err != nil {
 		return err
-	} // Null terminator
+	}
 
-	// Entries are padded with null bytes so total size aligns to 8-byte boundaries,
-	// which is required for Git index parsing.
+	// Pad entry to 8-byte boundary.
+	// Base entry size (without path) is 62 bytes.
 	entrySize := 62 + len(e.Path) + 1
-	pad := 8 - (entrySize % 8)
-	if pad != 8 {
-		for i := 0; i < pad; i++ {
-			if err := buf.WriteByte(0); err != nil {
-				return err
-			}
+	pad := (8 - (entrySize % 8)) % 8
+
+	for i := 0; i < pad; i++ {
+		if err := buf.WriteByte(0); err != nil {
+			return err
 		}
 	}
+
 	return nil
 }

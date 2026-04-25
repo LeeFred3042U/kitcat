@@ -14,7 +14,6 @@ import (
 
 // Commit creates a new commit object from the current index state.
 func Commit(message string) (string, error) {
-	// 1. MERGE STATE CHECK
 	isMerge := false
 	parents := []string{}
 	mergeHeadPath := filepath.Join(repo.Dir, "MERGE_HEAD")
@@ -27,14 +26,12 @@ func Commit(message string) (string, error) {
 		}
 	}
 
-	// 2. BULLETPROOF PREFLIGHT: Block unresolved conflicts
 	index, err := storage.LoadIndex()
 	if err != nil {
 		return "", fmt.Errorf("failed to load index: %w", err)
 	}
 
 	for path, entry := range index {
-		// Primary check: if the index serialization ever supports stages, block it here.
 		if entry.Stage != 0 {
 			return "", fmt.Errorf("cannot commit because you have unmerged files.\nFix conflicts in '%s', run '%s add', and commit again", path, app.Name)
 		}
@@ -51,7 +48,6 @@ func Commit(message string) (string, error) {
 		}
 	}
 
-	// 3. PARENT CHAIN SETUP
 	var oldHeadHash string
 	headCommit, err := storage.GetLastCommit()
 	if err == nil {
@@ -161,7 +157,7 @@ func AmendCommit(message string) (string, error) {
 		return "", err
 	}
 
-	parents := []string{}
+	parents := head.Parents
 	if len(parents) > 0 {
 		parents = append(parents, head.Parents...)
 	}

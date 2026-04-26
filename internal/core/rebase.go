@@ -253,22 +253,20 @@ func Rebase(targetBranch string, interactive bool) error {
 		return fmt.Errorf("fatal: invalid branch '%s'", targetBranch)
 	}
 
-	mergeBase, err := storage.FindMergeBase(headCommit.ID, targetHash)
+	mergeBases, err := storage.FindMergeBases(headCommit.ID, targetHash)
 	if err != nil {
 		return fmt.Errorf("failed to find merge base: %w", err)
 	}
 
+	mergeBase, err := selectBestMergeBase(mergeBases)
+	if err != nil {
+		return err
+	}
+
 	// 1. Collect commits from HEAD down to mergeBase
-	var commitsToRebase []models.Commit
-	curr := headCommit.ID
-	for curr != mergeBase && curr != "" {
-		c, err := storage.FindCommit(curr)
-		if err != nil {
-			return err
-		}
-		// Prepend to array because we traverse backwards, but need to replay forwards!
-		commitsToRebase = append([]models.Commit{c}, commitsToRebase...)
-		curr = c.Parents[0]
+	commitsToRebase, err := collectCommitsForRebase(headCommit.ID, mergeBase)
+	if err != nil {
+		return fmt.Errorf("failed to collect commits for rebase: %w", err)
 	}
 
 	if len(commitsToRebase) == 0 {

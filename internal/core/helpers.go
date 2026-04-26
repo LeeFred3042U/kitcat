@@ -23,6 +23,26 @@ import (
 var errUntracked = errors.New("untracked")
 var errModified = errors.New("modified")
 
+
+func selectBestMergeBase(bases []string) (string, error) {
+	if len(bases) == 0 {
+		return "", fmt.Errorf("no merge base found")
+	}
+	if len(bases) == 1 {
+		return bases[0], nil
+	}
+
+	// TODO: replace with generation-based scoring later
+	// For now: deterministic pick (lexicographically smallest)
+	best := bases[0]
+	for _, b := range bases[1:] {
+		if b < best {
+			best = b
+		}
+	}
+	return best, nil
+}
+
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.
 // It strips out comments (lines starting with #) before returning the text.
 func CaptureViaEditor(filename, initialContent string) (string, error) {

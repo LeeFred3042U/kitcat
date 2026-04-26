@@ -248,37 +248,112 @@ func HashFile(path string) (string, error) {
 	return plumbing.HashAndWriteObject(content, "blob")
 }
 
-// FindMergeBase performs a simple ancestry traversal to locate the first
-// common ancestor between two commits.
-//
-// The algo records all ancestors of the first commit and then walks
-// the ancestry of the second commit until a matching commit ID is found.
-func FindMergeBase(h1, h2 string) (string, error) {
-	// Record all ancestors of h1.
-	ancestors := make(map[string]bool)
+func isReachable(from, target string) bool {
+	queue := []string{from}
+	visited := make(map[string]bool)
 
-	curr := h1
-	for curr != "" {
-		ancestors[curr] = true
-		c, err := FindCommit(curr)
-		if err != nil || len(c.Parents) == 0 {
-			break
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		if curr == target {
+			return true
 		}
-		curr = c.Parents[0]
+
+		if visited[curr] {
+			continue
+		}
+		visited[curr] = true
+
+		c, err := FindCommit(curr)
+		if err != nil {
+			continue // skip broken paths
+		}
+
+		for _, p := range c.Parents {
+			if !visited[p] {
+				queue = append(queue, p)
+			}
+		}
 	}
 
-	// Walk ancestors of h2 until a match is found.
-	curr = h2
-	for curr != "" {
-		if ancestors[curr] {
-			return curr, nil
+	return false
+}
+
+// isReachableFromAny checks if `target` is reachable from any other node in `common`
+func isReachableFromAny(target string, common map[string]bool) bool {
+	for other := range common {
+		if other == target {
+			continue
 		}
+		if isReachable(other, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func collectAncestors(start string) (map[string]bool, error) {
+	visited := make(map[string]bool)
+	queue := []string{start}
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		if visited[curr] {
+			continue
+		}
+		visited[curr] = true
+
 		c, err := FindCommit(curr)
-		if err != nil || len(c.Parents) == 0 {
-			break
+		if err != nil {
+			return nil, err
 		}
-		curr = c.Parents[0]
+
+		for _, p := range c.Parents {
+			if !visited[p] {
+				queue = append(queue, p)
+			}
+		}
 	}
 
-	return "", fmt.Errorf("no merge base found")
+	return visited, nil
+}
+
+
+// FindMergeBases returns all lowest common ancestors (Git-style merge bases)
+func FindMergeBases(h1, h2 string) ([]string, error) {
+	// Step 1: collect all ancestors of both commits
+	anc1, err := collectAncestors(h1)
+	if err != nil {
+		return nil, err
+	}
+
+	anc2, err := collectAncestors(h2)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: intersection
+	common := make(map[string]bool)
+	for a := range anc1 {
+		if anc2[a] {
+			common[a] = true
+		}
+	}
+
+	if len(common) == 0 {
+		return nil, fmt.Errorf("no merge base found")
+	}
+
+	// Step 3: prune non-lowest ancestors
+	result := make([]string, 0)
+	for c := range common {
+		if !isReachableFromAny(c, common) {
+			result = append(result, c)
+		}
+	}
+
+	return result, nil
 }

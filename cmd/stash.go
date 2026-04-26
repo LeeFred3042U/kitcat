@@ -7,6 +7,7 @@ import (
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
 	"github.com/LeeFred3042U/kitcat/internal/core"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 func handleStash(args []string) {
@@ -55,7 +56,7 @@ func handleStash(args []string) {
 		if len(rest) > 0 {
 			idx = parseStashIndex(rest[0])
 		}
-		if err := core.StashDrop(idx); err != nil {
+		if err := storage.DropStash(idx); err != nil {
 			die("%v", err)
 		}
 

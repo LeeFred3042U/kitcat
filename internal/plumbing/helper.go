@@ -51,9 +51,8 @@ func HexToHash(s string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid hash length: %d", len(s))
 	}
 	out := make([]byte, 20)
-	for i := 0; i < 20; i++ {
-		// Parse two hex characters per byte to maintain strict decoding
-		// and fail fast on invalid characters.
+	for i := range 20 {
+		// Parse two hex characters per byte
 		if _, err := fmt.Sscanf(s[i*2:i*2+2], "%02x", &out[i]); err != nil {
 			return nil, fmt.Errorf("invalid hex at index %d: %w", i, err)
 		}

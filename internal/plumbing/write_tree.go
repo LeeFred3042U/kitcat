@@ -139,7 +139,7 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 	// Tree entries must be sorted lexicographically by name.
 	// Unsorted entries would produce nondeterministic hashes.
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].name < entries[j].name
+		return gitTreeLess(entries[i], entries[j])
 	})
 
 	// Serialize entries using the Git tree object format:
@@ -152,4 +152,18 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 
 	// Writing the object stores it in the object database and returns its hash.
 	return HashAndWriteObject(buf.Bytes(), "tree")
+}
+
+func gitTreeLess(a, b treeEntry) bool {
+	aKey := treeSortKey(a)
+	bKey := treeSortKey(b)
+	return aKey < bKey
+}
+
+func treeSortKey(e treeEntry) string {
+	// add trailing '/'
+	if e.mode == 0o40000 {
+		return e.name + "/"
+	}
+	return e.name
 }

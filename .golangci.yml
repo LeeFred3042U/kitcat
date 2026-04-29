@@ -1,11 +1,19 @@
+run:
+  timeout: 2m
+
 linters:
   enable:
     - revive
-    - gofmt
     - govet
+    - gofumpt
+    - errcheck
+    - staticcheck
+    - unused
+    - ineffassign
+    - typecheck
 
 linters-settings:
   revive:
     rules:
       - name: exported
-      - name: comment-spacings # Enforces space after //
+      - name: comment-spacings

@@ -196,12 +196,38 @@ func CheckoutFile(filePath string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	var modeVal uint32
 	fmt.Sscanf(entry.Mode, "%o", &modeVal)
 	if modeVal == 0120000 {
-	    os.Remove(filePath)
-	    return os.Symlink(string(content), filePath)
+		os.Remove(filePath)
+		if err := os.Symlink(string(content), filePath); err != nil {
+			return err
+		}
+	} else {
+		perm := os.FileMode(0644)
+		if modeVal&0o111 != 0 {
+			perm = 0755
+		}
+		if err := os.WriteFile(filePath, content, perm); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(filePath, content, 0644)
+
+	// Update the index so that status correctly reports the file as clean
+	// after checkout. Without this, the index still holds the old hash and
+	// `status` continues to report the file as modified; the next commit
+	// would also use the stale hash unless the user runs `add` manually.
+	hb, err := storage.HexToHash(entry.Hash)
+	if err != nil {
+		return fmt.Errorf("failed to decode hash for index update: %w", err)
+	}
+	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
+		index[filePath] = plumbing.IndexEntry{
+			Path: filePath,
+			Hash: hb,
+			Mode: modeVal,
+		}
+		return nil
+	})
 }

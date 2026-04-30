@@ -73,6 +73,7 @@ func ReadTree(treeHash string) error {
 // CheckoutTree compares the workspace vs the target tree and aligns them.
 // NOTE: Workspace updates are currently NOT transactional. Partial file
 // updates may remain on disk if an error occurs mid-operation.
+
 func CheckoutTree(treeHash string) error {
 	targetTree, err := storage.ParseTree(treeHash)
 	if err != nil {

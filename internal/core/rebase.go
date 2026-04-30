@@ -192,11 +192,12 @@ func commitRebaseStep(original models.Commit) (string, error) {
 	committerStr := fmt.Sprintf("%s <%s>", name, email)
 
 	opts := plumbing.CommitOptions{
-		Tree:      treeHash,
-		Parents:   parents,
-		Author:    authorStr,
-		Committer: committerStr,
-		Message:   original.Message,
+		Tree:       treeHash,
+		Parents:    parents,
+		Author:     authorStr,
+		Committer:  committerStr,
+		Message:    original.Message,
+		AuthorTime: original.Timestamp, // Preserve original author timestamp (Git rebase invariant)
 	}
 
 	newCommitHash, err := plumbing.CommitTree(opts)
@@ -319,16 +320,11 @@ func Rebase(targetBranch string, interactive bool) error {
 	return RebaseContinue()
 }
 
-// hardResetTo updates branch pointer then forces index and working tree
-// to match the provided commit hash.
+// hardResetTo forces the index and working tree to match the provided commit
+// hash. The branch ref is updated exclusively through Reset → UpdateRef so
+// that a workspace-rewrite failure (CheckoutTree) cannot leave the branch
+// pointer advanced while the working tree still reflects the old state.
 func hardResetTo(hash string) error {
-	currentBranch, _ := GetCurrentBranch()
-	refPath := ".kitcat/refs/heads/" + currentBranch
-
-	// Atomic write
-	if err := SafeWrite(refPath, []byte(hash), 0o644); err != nil {
-		return err
-	}
 	return Reset(hash, ResetHard)
 }
 

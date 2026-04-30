@@ -21,6 +21,10 @@ func collectCommitsForRebase(head, base string) ([]models.Commit, error) {
 			return err
 		}
 
+		// Iterating with range over c.Parents is safe when the slice is
+		// empty (root commit). An earlier implementation accessed c.Parents[0]
+		// unconditionally which panicked on root commits that were not equal
+		// to mergeBase (M6). The range loop terminates naturally at root.
 		for _, p := range c.Parents {
 			if err := dfs(p); err != nil {
 				return err

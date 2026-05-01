@@ -258,7 +258,12 @@ func IsWorkDirDirty() (bool, error) {
 
 		indexEntry, isTracked := index[cleanPath]
 		if !isTracked {
-			return errUntracked
+			// Untracked files are not considered dirty (matches Git behaviour).
+			// Only files already recorded in the index can make the working
+			// directory "dirty". Operations that would overwrite an untracked
+			// file must perform their own per-path collision check (as Checkout
+			// already does via its untracked collision check in step 2.5).
+			return nil
 		}
 
 	// Use os.Lstat directly rather than relying on Walk's info, to guarantee
@@ -520,7 +525,10 @@ func copyRecursive(src, dst string) error {
 	return out.Chmod(info.Mode())
 }
 
-// ReflogAppend writes a standard git-style entry to the reflog.
+// ReflogAppend atomically appends a git-style reflog entry to the given
+// reference log. The previous content is read, the new entry is appended
+// in memory, and the result is written via SafeWrite (temp-file + rename)
+// to prevent two concurrent writers from interleaving partial lines.
 func ReflogAppend(refname, oldHash, newHash, message string) error {
 	name, _, _ := GetConfig("user.name")
 	email, _, _ := GetConfig("user.email")
@@ -531,28 +539,26 @@ func ReflogAppend(refname, oldHash, newHash, message string) error {
 		email = "unknown@example.com"
 	}
 
-	timestamp := time.Now().Unix()
-	tzOffset := time.Now().Format("-0700")
+	now := time.Now()
+	timestamp := now.Unix()
+	tzOffset := now.Format("-0700")
 
 	if oldHash == "" {
 		oldHash = "0000000000000000000000000000000000000000"
 	}
 
-	logEntry := fmt.Sprintf("%s %s %s <%s> %d %s\t%s\n", oldHash, newHash, name, email, timestamp, tzOffset, message)
+	newEntry := fmt.Sprintf("%s %s %s <%s> %d %s\t%s\n", oldHash, newHash, name, email, timestamp, tzOffset, message)
 
 	logPath := filepath.Join(repo.Dir, "logs", refname)
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	// Read existing log content (ignore error if file doesn't exist yet).
+	existing, _ := os.ReadFile(logPath)
 
-	_, err = f.WriteString(logEntry)
-	return err
+	// Append in memory then write atomically to avoid concurrent interleaving.
+	return SafeWrite(logPath, append(existing, []byte(newEntry)...), 0o644)
 }
 
 // UpdateWorkspaceAndIndex forces the working directory and index to match

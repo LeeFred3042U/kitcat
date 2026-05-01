@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,8 +39,14 @@ func Commit(message string) (string, error) {
 
 		// Fallback check: Physically scan the file for conflict markers if a merge is active.
 		// This guarantees that a user cannot commit unresolved <<<<<<< lines.
+		// Binary files are skipped (null-byte heuristic) to avoid false positives
+		// and unnecessary memory allocation for large non-text blobs.
 		if isMerge {
 			if content, err := os.ReadFile(path); err == nil {
+				// Treat any file containing a null byte as binary and skip it.
+				if bytes.IndexByte(content, 0) != -1 {
+					continue
+				}
 				strContent := string(content)
 				if strings.Contains(strContent, "<<<<<<< HEAD") && strings.Contains(strContent, "=======") {
 					return "", fmt.Errorf("cannot commit because you have unmerged files.\nFix conflicts in '%s', run '%s add', and commit again", path, app.Name)
@@ -193,19 +200,27 @@ func AmendCommit(message string) (string, error) {
 	return commitHash, nil
 }
 
-// updateHead updates the branch reference pointed to by HEAD.
-// If HEAD is detached or malformed, defaults to refs/heads/main.
+// updateHead updates the branch reference pointed to by HEAD, or HEAD itself
+// when in detached-HEAD state.
+//
+// When HEAD contains "ref: refs/heads/<branch>", the new commit hash is
+// written to the branch file as normal. When HEAD is detached (contains a
+// raw hash rather than a symbolic ref), the new commit hash is written
+// directly to HEAD — the old code fell through to a fabricated refPath
+// and silently created a stale file at .kitcat/<40-char-hash>.
 func updateHead(commitHash string) error {
 	headData, _ := os.ReadFile(repo.HeadPath)
-	refPath := strings.TrimSpace(strings.TrimPrefix(string(headData), "ref: "))
-	if refPath == "" {
-		refPath = "refs/heads/main"
+	ref := strings.TrimSpace(string(headData))
+
+	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
+		// Symbolic ref → update the branch file.
+		fullRefPath := filepath.Join(repo.Dir, refPath)
+		if err := os.MkdirAll(filepath.Dir(fullRefPath), 0o755); err != nil {
+			return err
+		}
+		return SafeWrite(fullRefPath, []byte(commitHash), 0o644)
 	}
 
-	fullRefPath := filepath.Join(repo.Dir, refPath)
-	if err := os.MkdirAll(filepath.Dir(fullRefPath), 0o755); err != nil {
-		return err
-	}
-
-	return SafeWrite(fullRefPath, []byte(commitHash), 0o644)
+	// Detached HEAD → write the new commit hash directly to HEAD.
+	return SafeWrite(repo.HeadPath, []byte(commitHash), 0o644)
 }

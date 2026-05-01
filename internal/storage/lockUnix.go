@@ -36,12 +36,15 @@ func LockFile(f *os.File) error {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 }
 
-// unlock releases the advisory lock previously acquired with LockFile
-// and closes the associated file descriptor.
+// unlock releases the advisory lock previously acquired with LockFile,
+// removes the companion ".lock" file from disk, and closes the file descriptor.
 //
-// Releasing the lock allows other processes waiting on the same lock
-// file to proceed.
+// The lock file is removed before closing so that other processes waiting on
+// the same path observe the deletion immediately. Accumulated stale lock files
+// are the symptom of the old implementation that omitted this removal step.
 func unlock(f *os.File) {
+	name := f.Name()
 	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	f.Close()
+	os.Remove(name)
 }

@@ -22,12 +22,16 @@ func handleReset(args []string) {
 
 	fsArgs := fs.Args()
 
-	for i, arg := range args {
+	// Search for the "--" separator in the post-flag-parse arguments only.
+	// Using raw `args` here would include flag tokens (e.g. --hard) in the
+	// paths slice when they appear after "--", causing UnstageFile to receive
+	// flag strings as file paths.
+	for i, arg := range fsArgs {
 		if arg == "--" {
-			paths := args[i+1:]
+			paths := fsArgs[i+1:]
 
 			commit := "HEAD"
-			if len(fsArgs) > 0 {
+			if i > 0 {
 				commit = fsArgs[0]
 			}
 

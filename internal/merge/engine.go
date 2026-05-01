@@ -1,6 +1,8 @@
 package merge
 
 import (
+	"fmt"
+
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
@@ -22,6 +24,14 @@ type Conflict struct {
 	TheirsHash string
 }
 
+// CleanEntry holds the blob hash and file mode for a clean (conflict-free)
+// merge update. Mode is preserved so that executable bits and symlinks
+// (0o100755, 0o120000) are not silently reset to 0o100644 across merges.
+type CleanEntry struct {
+	Hash string
+	Mode uint32
+}
+
 // MergePlan is a pure data representation of the outcome of a 3-way merge
 // between three trees.
 //
@@ -29,8 +39,8 @@ type Conflict struct {
 // the merge later. No filesystem operations are performed during planning.
 type MergePlan struct {
 	// CleanUpdates contains paths that merged without conflict and should
-	// be updated to the specified blob hash.
-	CleanUpdates map[string]string
+	// be updated to the specified blob hash and file mode.
+	CleanUpdates map[string]CleanEntry
 
 	// Conflicts contains paths that require manual resolution.
 	Conflicts map[string]Conflict
@@ -58,7 +68,7 @@ type MergePlan struct {
 //   - or changed differently and therefore conflicts
 func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 	plan := &MergePlan{
-		CleanUpdates: make(map[string]string),
+		CleanUpdates: make(map[string]CleanEntry),
 		Conflicts:    make(map[string]Conflict),
 		Deletions:    make([]string, 0),
 	}
@@ -73,6 +83,16 @@ func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 	}
 	for p := range theirs {
 		allPaths[p] = true
+	}
+
+	// parseMode converts an octal-string mode (e.g. "100755") to uint32.
+	parseMode := func(s string) uint32 {
+		var m uint32
+		fmt.Sscanf(s, "%o", &m)
+		if m == 0 {
+			m = 0o100644
+		}
+		return m
 	}
 
 	// Evaluate each path independently.
@@ -95,7 +115,7 @@ func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 		// Case 1: Unchanged in both branches relative to base.
 		if oHash == bHash && tHash == bHash {
 			if inBase {
-				plan.CleanUpdates[path] = bHash
+				plan.CleanUpdates[path] = CleanEntry{Hash: bHash, Mode: parseMode(baseEntry.Mode)}
 			}
 			continue
 		}
@@ -104,7 +124,7 @@ func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 		// (or both deleted the file).
 		if oHash == tHash {
 			if inOurs {
-				plan.CleanUpdates[path] = oHash
+				plan.CleanUpdates[path] = CleanEntry{Hash: oHash, Mode: parseMode(oursEntry.Mode)}
 			} else {
 				plan.Deletions = append(plan.Deletions, path)
 			}
@@ -114,7 +134,7 @@ func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 		// Case 3: Only OURS changed the file.
 		if tHash == bHash {
 			if inOurs {
-				plan.CleanUpdates[path] = oHash
+				plan.CleanUpdates[path] = CleanEntry{Hash: oHash, Mode: parseMode(oursEntry.Mode)}
 			} else {
 				plan.Deletions = append(plan.Deletions, path)
 			}
@@ -124,7 +144,7 @@ func MergeTrees(base, ours, theirs map[string]storage.TreeEntry) *MergePlan {
 		// Case 4: Only THEIRS changed the file.
 		if oHash == bHash {
 			if inTheirs {
-				plan.CleanUpdates[path] = tHash
+				plan.CleanUpdates[path] = CleanEntry{Hash: tHash, Mode: parseMode(theirsEntry.Mode)}
 			} else {
 				plan.Deletions = append(plan.Deletions, path)
 			}

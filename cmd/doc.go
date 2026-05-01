@@ -129,5 +129,4 @@
 //
 // This approach keeps the CLI predictable, composable, and aligned with
 // established command-line conventions.
-//
 package main

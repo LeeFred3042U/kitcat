@@ -75,7 +75,8 @@ func UpdateIndex(entries []IndexEntry, indexPath string) error {
 // the Git index v2 binary layout
 //
 // Layout:
-//   [stat data][object id][flags][path][NUL][padding]
+//
+//	[stat data][object id][flags][path][NUL][padding]
 //
 // Flags:
 //   - lower 12 bits: truncated path length
@@ -135,7 +136,7 @@ func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	if length > 0x0FFF {
 		length = 0x0FFF
 	}
-	
+
 	flags := (stage << 12) | (length & 0x0FFF)
 
 	if err := binary.Write(buf, binary.BigEndian, flags); err != nil {

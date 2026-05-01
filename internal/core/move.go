@@ -23,7 +23,7 @@ func MoveFile(src, dst string, force bool) error {
 	if src == dst {
 		return fmt.Errorf("source and destination are the same")
 	}
-	
+
 	if !IsSafePath(src) || !IsSafePath(dst) {
 		return fmt.Errorf("unsafe path")
 	}

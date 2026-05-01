@@ -83,7 +83,38 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 		}
 		w.Close()
 
-		if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		// Write atomically via temp-file + rename. A direct os.WriteFile leaves a
+		// partial (corrupt) object if the process crashes mid-write; the existence
+		// check above would then skip re-writing it permanently.
+		//
+		// NOTE: storage.SafeWriteFile implements the same pattern but importing
+		// the storage package from plumbing would create an import cycle
+		// (storage → plumbing → storage). The equivalent logic is therefore
+		// duplicated here. If this package is ever restructured into a separate
+		// ioutil layer, replace this block with a call to that helper instead.
+		tmp, err := os.CreateTemp(dir, "obj-*.tmp")
+		if err != nil {
+			return "", err
+		}
+		tmpPath := tmp.Name()
+
+		_, writeErr := tmp.Write(buf.Bytes())
+		syncErr := tmp.Sync()
+		closeErr := tmp.Close()
+
+		if writeErr != nil || syncErr != nil || closeErr != nil {
+			os.Remove(tmpPath)
+			if writeErr != nil {
+				return "", writeErr
+			}
+			if syncErr != nil {
+				return "", syncErr
+			}
+			return "", closeErr
+		}
+
+		if err := os.Rename(tmpPath, path); err != nil {
+			os.Remove(tmpPath)
 			return "", err
 		}
 	}

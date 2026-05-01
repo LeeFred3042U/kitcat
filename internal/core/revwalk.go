@@ -1,8 +1,8 @@
 package core
 
 import (
-	"github.com/LeeFred3042U/kitcat/internal/storage"
 	"github.com/LeeFred3042U/kitcat/internal/models"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 func collectCommitsForRebase(head, base string) ([]models.Commit, error) {

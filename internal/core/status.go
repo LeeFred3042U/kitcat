@@ -90,7 +90,7 @@ func Status() (string, error) {
 	ignorePatterns, _ := LoadIgnorePatterns()
 	proxyIndex := make(map[string]string)
 
-	filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || path == "." || strings.HasPrefix(path, repo.Dir) {
 			return nil
 		}
@@ -144,7 +144,9 @@ func Status() (string, error) {
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return "", err
+	}
 
 	// Detect deleted files (present in index, absent on disk).
 	for path, entry := range index {
@@ -255,8 +257,7 @@ func calculateSimilarity(a, b []byte) float64 {
 		if len(l) == 0 {
 			continue
 		}
-		str := string(l)
-		if _, ok := setA[str]; ok {
+		if _, ok := setA[string(l)]; ok {
 			intersection++
 		} else {
 			union++

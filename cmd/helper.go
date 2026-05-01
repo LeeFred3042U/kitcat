@@ -24,6 +24,7 @@ func shortHash(h string) string {
 	}
 	return h
 }
+
 func parseStashIndex(arg string) int {
 	var n int
 	_, err := fmt.Sscanf(arg, "stash@{%d}", &n)

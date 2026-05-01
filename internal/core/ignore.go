@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"time"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // IgnorePattern represents a single parsed line from .kitignore.
@@ -22,101 +22,101 @@ type IgnorePattern struct {
 // Global cache for ignore patterns. RWMutex ensures concurrent readers
 // during filesystem scans without repeated disk parsing.
 var (
-    ignoreCache     []IgnorePattern
-    ignoreCacheMu   sync.RWMutex
-    ignoreCacheMtime time.Time
+	ignoreCache      []IgnorePattern
+	ignoreCacheMu    sync.RWMutex
+	ignoreCacheMtime time.Time
 )
 
 func LoadIgnorePatterns() ([]IgnorePattern, error) {
-    info, err := os.Stat(".kitignore")
+	info, err := os.Stat(".kitignore")
 
-    // Normalize "file missing" case
-    var mtime time.Time
-    fileExists := true
+	// Normalize "file missing" case
+	var mtime time.Time
+	fileExists := true
 
-    if err != nil {
-        if os.IsNotExist(err) {
-            fileExists = false
-            mtime = time.Time{} // zero time
-        } else {
-            return nil, fmt.Errorf("error stating .kitignore: %w", err)
-        }
-    } else {
-        mtime = info.ModTime()
-    }
+	if err != nil {
+		if os.IsNotExist(err) {
+			fileExists = false
+			mtime = time.Time{} // zero time
+		} else {
+			return nil, fmt.Errorf("error stating .kitignore: %w", err)
+		}
+	} else {
+		mtime = info.ModTime()
+	}
 
-    // Fast path cache hit
-    ignoreCacheMu.RLock()
-    if mtime.Equal(ignoreCacheMtime) {
-        patterns := ignoreCache
-        ignoreCacheMu.RUnlock()
-        return patterns, nil
-    }
-    ignoreCacheMu.RUnlock()
+	// Fast path cache hit
+	ignoreCacheMu.RLock()
+	if mtime.Equal(ignoreCacheMtime) {
+		patterns := ignoreCache
+		ignoreCacheMu.RUnlock()
+		return patterns, nil
+	}
+	ignoreCacheMu.RUnlock()
 
-    // Slow path reload
-    ignoreCacheMu.Lock()
-    defer ignoreCacheMu.Unlock()
+	// Slow path reload
+	ignoreCacheMu.Lock()
+	defer ignoreCacheMu.Unlock()
 
-    // Double-check under write lock
-    if mtime.Equal(ignoreCacheMtime) {
-        return ignoreCache, nil
-    }
+	// Double-check under write lock
+	if mtime.Equal(ignoreCacheMtime) {
+		return ignoreCache, nil
+	}
 
-    var patterns []IgnorePattern
+	var patterns []IgnorePattern
 
-    if fileExists {
-        file, err := os.Open(".kitignore")
-        if err != nil {
-            return nil, fmt.Errorf("error reading .kitignore: %w", err)
-        }
-        defer file.Close()
+	if fileExists {
+		file, err := os.Open(".kitignore")
+		if err != nil {
+			return nil, fmt.Errorf("error reading .kitignore: %w", err)
+		}
+		defer file.Close()
 
-        scanner := bufio.NewScanner(file)
-        lineNumber := 0
+		scanner := bufio.NewScanner(file)
+		lineNumber := 0
 
-        for scanner.Scan() {
-            lineNumber++
-            line := strings.TrimSpace(scanner.Text())
+		for scanner.Scan() {
+			lineNumber++
+			line := strings.TrimSpace(scanner.Text())
 
-            if line == "" || strings.HasPrefix(line, "#") {
-                continue
-            }
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
 
-            isDirectory := strings.HasSuffix(line, "/")
-            pattern := line
-            if isDirectory {
-                pattern = strings.TrimSuffix(pattern, "/")
-            }
+			isDirectory := strings.HasSuffix(line, "/")
+			pattern := line
+			if isDirectory {
+				pattern = strings.TrimSuffix(pattern, "/")
+			}
 
-            if !isValidPattern(pattern) {
-                fmt.Fprintf(os.Stderr,
-                    "warning: .kitignore line %d: invalid pattern '%s' (skipping)\n",
-                    lineNumber, line)
-                continue
-            }
+			if !isValidPattern(pattern) {
+				fmt.Fprintf(os.Stderr,
+					"warning: .kitignore line %d: invalid pattern '%s' (skipping)\n",
+					lineNumber, line)
+				continue
+			}
 
-            patterns = append(patterns, IgnorePattern{
-                Original:    line,
-                Pattern:     pattern,
-                IsDirectory: isDirectory,
-                LineNumber:  lineNumber,
-            })
-        }
+			patterns = append(patterns, IgnorePattern{
+				Original:    line,
+				Pattern:     pattern,
+				IsDirectory: isDirectory,
+				LineNumber:  lineNumber,
+			})
+		}
 
-        if err := scanner.Err(); err != nil {
-            return nil, fmt.Errorf("error reading .kitignore: %w", err)
-        }
-    } else {
-        // Missing file → empty cache
-        patterns = []IgnorePattern{}
-    }
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("error reading .kitignore: %w", err)
+		}
+	} else {
+		// Missing file → empty cache
+		patterns = []IgnorePattern{}
+	}
 
-    // Update cache
-    ignoreCache = patterns
-    ignoreCacheMtime = mtime
+	// Update cache
+	ignoreCache = patterns
+	ignoreCacheMtime = mtime
 
-    return patterns, nil
+	return patterns, nil
 }
 
 // ShouldIgnore returns true if a path matches any ignore pattern.
@@ -239,7 +239,7 @@ func isValidPattern(pattern string) bool {
 // writing a new .kitignore within the same process, or in tests that
 // create ignore files and need immediate consistency.
 func ClearIgnoreCache() {
-    ignoreCacheMu.Lock()
-    defer ignoreCacheMu.Unlock()
-    ignoreCacheMtime = time.Time{} // zero invalidates any real mtime
+	ignoreCacheMu.Lock()
+	defer ignoreCacheMu.Unlock()
+	ignoreCacheMtime = time.Time{} // zero invalidates any real mtime
 }

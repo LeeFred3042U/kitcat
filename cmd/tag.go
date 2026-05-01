@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/LeeFred3042U/kitcat/internal/core"
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/core"
 )
 
 func handleTag(args []string) {

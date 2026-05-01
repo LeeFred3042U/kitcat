@@ -31,26 +31,30 @@ func ApplyMergePlan(plan *MergePlan) error {
 		}
 
 		// 2. Process Clean Updates
-		for path, hash := range plan.CleanUpdates {
-			content, err := storage.ReadObject(hash)
+		for path, entry := range plan.CleanUpdates {
+			content, err := storage.ReadObject(entry.Hash)
 			if err != nil {
-				return fmt.Errorf("failed to read object %s for path %s: %w", hash, path, err)
+				return fmt.Errorf("failed to read object %s for path %s: %w", entry.Hash, path, err)
 			}
 
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				return err
 			}
 
-			if err := os.WriteFile(path, content, 0o644); err != nil {
+			perm := os.FileMode(0o644)
+			if entry.Mode&0o111 != 0 {
+				perm = 0o755
+			}
+			if err := os.WriteFile(path, content, perm); err != nil {
 				return err
 			}
 
-			hb, _ := storage.HexToHash(hash)
+			hb, _ := storage.HexToHash(entry.Hash)
 			index[path] = plumbing.IndexEntry{
 				Path:  path,
 				Hash:  hb,
-				Mode:  0o100644, // Default standard file mode
-				Stage: 0,        // Stage 0 = Clean/Resolved
+				Mode:  entry.Mode, // Preserve source mode (exec bit, symlink, etc.)
+				Stage: 0,          // Stage 0 = Clean/Resolved
 			}
 		}
 

@@ -1,11 +1,11 @@
 package core
 
 import (
-	"path/filepath"
-	"strings"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
@@ -198,8 +198,8 @@ func AddAll() error {
 func stageFile(fullPath, cleanPath string, info os.FileInfo,
 	index map[string]plumbing.IndexEntry,
 	ignorePatterns []IgnorePattern,
-	proxyIndex map[string]string) (bool, error) {
-
+	proxyIndex map[string]string,
+) (bool, error) {
 	if info.IsDir() {
 		return false, nil
 	}
@@ -221,13 +221,13 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 	var fileMode uint32
 	switch {
 	case isSymlink:
-		fileMode = 0120000
-	case info.Mode()&0111 != 0:
-		fileMode = 0100755
+		fileMode = 0o120000
+	case info.Mode()&0o111 != 0:
+		fileMode = 0o100755
 	default:
-		fileMode = 0100644
+		fileMode = 0o100644
 	}
-	
+
 	entry := plumbing.IndexEntry{
 		Path:      cleanPath,
 		Mode:      fileMode,
@@ -235,7 +235,7 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 		MTimeSec:  uint32(info.ModTime().Unix()),
 		MTimeNSec: uint32(info.ModTime().Nanosecond()),
 	}
-	
+
 	if existing, exists := index[cleanPath]; exists {
 		if existing.Size == entry.Size &&
 			existing.MTimeSec == entry.MTimeSec &&
@@ -243,7 +243,7 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 			return true, nil
 		}
 	}
-	
+
 	// Read content based on file type.
 	// For symlinks, content is the link target path stored as UTF-8 bytes.
 	// For regular files, content is the file bytes.

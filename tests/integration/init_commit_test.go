@@ -36,7 +36,6 @@ func TestInitAndFirstCommit(t *testing.T) {
 	}
 
 	hash, err := core.Commit("initial commit")
-
 	if err != nil {
 		t.Fatalf("Commit returned error: %v", err)
 	}

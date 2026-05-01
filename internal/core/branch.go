@@ -1,11 +1,11 @@
 package core
 
 import (
-	"path/filepath"
-	"strings"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
@@ -110,7 +110,9 @@ func CreateBranch(name string) error {
 	branchPath := filepath.Join(headsDir, name)
 	err = SafeWrite(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
 	if err == nil {
-		ReflogAppend("refs/heads/"+name, "", commitHash, "branch: Created from HEAD")
+		if logErr := ReflogAppend("refs/heads/"+name, "", commitHash, "branch: Created from HEAD"); logErr != nil {
+			return logErr
+		}
 	}
 
 	return err
@@ -228,8 +230,12 @@ func RenameCurrentBranch(newName string) error {
 
 	// Record rename events in reflogs.
 	hashStr := strings.TrimSpace(string(commitHash))
-	ReflogAppend("refs/heads/"+newName, "", hashStr, "branch: renamed from "+oldName)
-	ReflogAppend("HEAD", hashStr, hashStr, "checkout: moving from "+oldName+" to "+newName)
+	if err := ReflogAppend("refs/heads/"+newName, "", hashStr, "branch: renamed from "+oldName); err != nil {
+		return err
+	}
+	if err := ReflogAppend("HEAD", hashStr, hashStr, "checkout: moving from "+oldName+" to "+newName); err != nil {
+		return err
+	}
 
 	return os.Remove(oldRef)
 }

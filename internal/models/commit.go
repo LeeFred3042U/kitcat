@@ -4,7 +4,7 @@ import "time"
 
 type Commit struct {
 	ID          string
-	Parents      []string
+	Parents     []string
 	Message     string
 	Timestamp   time.Time
 	TreeHash    string

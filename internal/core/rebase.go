@@ -65,7 +65,7 @@ func RebaseContinue() error {
 		stoppedHash := strings.TrimSpace(string(stoppedHashBytes))
 		commitToApply, err := storage.FindCommit(stoppedHash)
 		if err != nil {
-		    return fmt.Errorf("failed to find stopped commit %s: %w", stoppedHash[:7], err)
+			return fmt.Errorf("failed to find stopped commit %s: %w", stoppedHash[:7], err)
 		}
 
 		if _, err := commitRebaseStep(commitToApply); err != nil {
@@ -108,24 +108,24 @@ func RebaseContinue() error {
 			if baseCommit, err := storage.FindCommit(commitToApply.Parents[0]); err == nil {
 				baseTree, err = storage.ParseTree(baseCommit.TreeHash)
 				if err != nil {
-				    return fmt.Errorf("failed to parse base tree (%s): %w", baseCommit.TreeHash, err)
+					return fmt.Errorf("failed to parse base tree (%s): %w", baseCommit.TreeHash, err)
 				}
 			}
 		}
 
 		oursCommit, err := storage.GetLastCommit()
 		if err != nil {
-		    return fmt.Errorf("failed to get last commit: %w", err)
+			return fmt.Errorf("failed to get last commit: %w", err)
 		}
 
 		oursTree, err := storage.ParseTree(oursCommit.TreeHash)
 		if err != nil {
-		    return fmt.Errorf("failed to parse ours tree (%s): %w", oursCommit.TreeHash, err)
+			return fmt.Errorf("failed to parse ours tree (%s): %w", oursCommit.TreeHash, err)
 		}
 
 		theirsTree, err := storage.ParseTree(commitToApply.TreeHash)
 		if err != nil {
-		    return fmt.Errorf("failed to parse theirs tree (%s): %w", commitToApply.TreeHash, err)
+			return fmt.Errorf("failed to parse theirs tree (%s): %w", commitToApply.TreeHash, err)
 		}
 
 		// --- CALCULATE & APPLY MERGE ---
@@ -137,7 +137,9 @@ func RebaseContinue() error {
 		// --- CONFLICT HANDLING ---
 		if len(plan.Conflicts) > 0 {
 			// Pause the sequencer by writing the stopped-sha
-			os.WriteFile(stoppedShaPath, []byte(hash), 0o644)
+			if err := os.WriteFile(stoppedShaPath, []byte(hash), 0o644); err != nil {
+				return fmt.Errorf("failed to write stopped-sha: %w", err)
+			}
 
 			fmt.Println("CONFLICT (content): Merge conflict in files:")
 			for path := range plan.Conflicts {

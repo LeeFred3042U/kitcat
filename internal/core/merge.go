@@ -49,7 +49,7 @@ func Merge(branchToMerge string) error {
 	if err != nil {
 		return fmt.Errorf("failed to calculate merge base: %w", err)
 	}
-	
+
 	mergeBase, err := selectBestMergeBase(mergeBases)
 	if err != nil {
 		return err

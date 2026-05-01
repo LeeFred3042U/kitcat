@@ -321,7 +321,6 @@ func collectAncestors(start string) (map[string]bool, error) {
 	return visited, nil
 }
 
-
 // FindMergeBases returns all lowest common ancestors (Git-style merge bases)
 func FindMergeBases(h1, h2 string) ([]string, error) {
 	// Step 1: collect all ancestors of both commits

@@ -93,13 +93,13 @@ func Checkout(target string, force bool) error {
 			// Parse mode before writing so symlinks are dispatched correctly.
 			var mode uint32
 			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
-				mode = 0100644
+				mode = 0o100644
 			}
-			
-			if mode == 0120000 {
+
+			if mode == 0o120000 {
 				// Symlink: content is the target path.
 				if dir := filepath.Dir(path); dir != "." {
-					if err := os.MkdirAll(dir, 0755); err != nil {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
 						return fmt.Errorf("failed to create directory %s: %w", dir, err)
 					}
 				}
@@ -110,14 +110,14 @@ func Checkout(target string, force bool) error {
 			} else {
 				// Regular file: ensure parent directory exists.
 				if dir := filepath.Dir(path); dir != "." {
-					if err := os.MkdirAll(dir, 0755); err != nil {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
 						return fmt.Errorf("failed to create directory %s: %w", dir, err)
 					}
 				}
 				os.Remove(path) // Prevent os.WriteFile from following stale symlinks
-				perm := os.FileMode(0644)
-				if mode&0111 != 0 {
-					perm = 0755
+				perm := os.FileMode(0o644)
+				if mode&0o111 != 0 {
+					perm = 0o755
 				}
 				if err := os.WriteFile(path, content, perm); err != nil {
 					return err
@@ -126,7 +126,7 @@ func Checkout(target string, force bool) error {
 
 			// Convert hex blob hash into binary index hash.
 			hb, _ := storage.HexToHash(entry.Hash)
-			
+
 			index[path] = plumbing.IndexEntry{
 				Path: path,
 				Hash: hb,
@@ -135,13 +135,12 @@ func Checkout(target string, force bool) error {
 		}
 		return nil
 	})
-
 	if err != nil {
 		return err
 	}
 
 	// 4. INVARIANT: HEAD moves last!
-	if err := SafeWrite(repo.HeadPath, []byte(headContent), 0644); err != nil {
+	if err := SafeWrite(repo.HeadPath, []byte(headContent), 0o644); err != nil {
 		return err
 	}
 
@@ -172,7 +171,7 @@ func CheckoutFile(filePath string) error {
 	if _, err := os.Stat(filePath); err == nil {
 		currentHash, err := storage.HashFile(filePath)
 		if err != nil {
-		    return fmt.Errorf("failed to calculate hash for safety check: %w", err)
+			return fmt.Errorf("failed to calculate hash for safety check: %w", err)
 		}
 
 		index, err := storage.LoadIndex()
@@ -198,16 +197,18 @@ func CheckoutFile(filePath string) error {
 	}
 
 	var modeVal uint32
-	fmt.Sscanf(entry.Mode, "%o", &modeVal)
-	if modeVal == 0120000 {
+	if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err != nil {
+		modeVal = 0o100644
+	}
+	if modeVal == 0o120000 {
 		os.Remove(filePath)
 		if err := os.Symlink(string(content), filePath); err != nil {
 			return err
 		}
 	} else {
-		perm := os.FileMode(0644)
+		perm := os.FileMode(0o644)
 		if modeVal&0o111 != 0 {
-			perm = 0755
+			perm = 0o755
 		}
 		if err := os.WriteFile(filePath, content, perm); err != nil {
 			return err

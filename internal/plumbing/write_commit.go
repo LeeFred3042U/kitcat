@@ -9,11 +9,13 @@ import (
 // CommitOptions contains the metadata required to construct a commit object.
 // Fields map directly to the canonical Git commit header structure.
 type CommitOptions struct {
-	Tree      string   // SHA-1 of root tree
-	Parents   []string // SHA-1 of parent commits
-	Author    string   // "Name <email>"
-	Committer string   // "Name <email>"
-	Message   string   // commit message
+	Tree          string    // SHA-1 of root tree
+	Parents       []string  // SHA-1 of parent commits
+	Author        string    // "Name <email>"
+	Committer     string    // "Name <email>"
+	Message       string    // commit message
+	AuthorTime    time.Time // author timestamp; zero means use time.Now()
+	CommitterTime time.Time // committer timestamp; zero means use time.Now()
 }
 
 // CommitTree creates a commit object from the provided options and writes it
@@ -28,9 +30,17 @@ func CommitTree(opts CommitOptions) (string, error) {
 		buf.WriteString(fmt.Sprintf("parent %s\n", p))
 	}
 
-	now := time.Now()
-	seconds := now.Unix()
-	offset := now.Format("-0700") // timezone offset like "+0530"
+	// Use caller-supplied timestamps when non-zero (e.g. rebase must preserve
+	// the original author time to match Git's invariant). Fall back to
+	// time.Now() for normal commits where no explicit time is provided.
+	authorTime := opts.AuthorTime
+	if authorTime.IsZero() {
+		authorTime = time.Now()
+	}
+	committerTime := opts.CommitterTime
+	if committerTime.IsZero() {
+		committerTime = time.Now()
+	}
 
 	// Fallback author ensures commits remain constructible even when identity
 	// configuration is missing.
@@ -38,14 +48,14 @@ func CommitTree(opts CommitOptions) (string, error) {
 	if author == "" {
 		author = "KitKat User <user@kitkat>"
 	}
-	buf.WriteString(fmt.Sprintf("author %s %d %s\n", author, seconds, offset))
+	buf.WriteString(fmt.Sprintf("author %s %d %s\n", author, authorTime.Unix(), authorTime.Format("-0700")))
 
-	// Committer defaults to author to mirror Git’s behavior for simple commits.
+	// Committer defaults to author to mirror Git's behavior for simple commits.
 	committer := opts.Committer
 	if committer == "" {
 		committer = author
 	}
-	buf.WriteString(fmt.Sprintf("committer %s %d %s\n\n", committer, seconds, offset))
+	buf.WriteString(fmt.Sprintf("committer %s %d %s\n\n", committer, committerTime.Unix(), committerTime.Format("-0700")))
 
 	buf.WriteString(opts.Message)
 

@@ -53,10 +53,10 @@ func StashApply(index int) error {
 }
 
 // StashDrop removes the stash at the given index (0 = newest) from the stack.
-//func StashDrop(index int) error {
-//	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
-//		return fmt.Errorf("fatal: not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
-//	}
+// func StashDrop(index int) error {
+// 	if _, err := os.Stat(repo.Dir); os.IsNotExist(err) {
+// 		return fmt.Errorf("fatal: not a %s repository (or any of the parent directories): %s", app.Name, repo.Dir)
+// 	}
 //
 //	stashes, err := storage.ListStashes()
 //	if err != nil {
@@ -85,14 +85,14 @@ func StashApply(index int) error {
 //	    buf.WriteByte('\n')
 //	}
 //
-//	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
-//		return err
-//	}
-//	
-//	fmt.Printf("Dropped refs/stash@{%d} (%s)\n", index, stashes[index][:7])
-//	
-//	return nil
-//}
+// 	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
+// 		return err
+// 	}
+//
+// 	fmt.Printf("Dropped refs/stash@{%d} (%s)\n", index, stashes[index][:7])
+//
+// 	return nil
+// }
 
 // StashPush saves the current working directory and index state to the stash stack.
 // It creates a "WIP" commit with an optional custom message and performs a hard reset

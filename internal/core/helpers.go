@@ -20,9 +20,10 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-var errUntracked = errors.New("untracked")
-var errModified = errors.New("modified")
-
+var (
+	errUntracked = errors.New("untracked")
+	errModified  = errors.New("modified")
+)
 
 func selectBestMergeBase(bases []string) (string, error) {
 	if len(bases) == 0 {
@@ -266,41 +267,41 @@ func IsWorkDirDirty() (bool, error) {
 			return nil
 		}
 
-	// Use os.Lstat directly rather than relying on Walk's info, to guarantee
-	// symlink detection is not affected by filesystem or Walk implementation
-	// differences across platforms.
-	lfi, lstatErr := os.Lstat(cleanPath)
-	if lstatErr != nil {
-	    return lstatErr
-	}
-
-	var currentHash string
-	if lfi.Mode()&os.ModeSymlink != 0 {
-	    // For symlinks, hash the link target PATH string (what the blob stores),
-	    // not the target file's content (what os.ReadFile would return by
-	    // following the link). HashFile uses os.ReadFile which follows symlinks
-	    // and would always report a mismatch for correctly staged symlinks.
-	    target, readlinkErr := os.Readlink(cleanPath)
-	    if readlinkErr != nil {
-	        return readlinkErr
-	    }
-    var hashErr error
-    currentHash, hashErr = plumbing.HashAndWriteObject([]byte(target), "blob")
-	if hashErr != nil {
-	    return hashErr
+		// Use os.Lstat directly rather than relying on Walk's info, to guarantee
+		// symlink detection is not affected by filesystem or Walk implementation
+		// differences across platforms.
+		lfi, lstatErr := os.Lstat(cleanPath)
+		if lstatErr != nil {
+			return lstatErr
 		}
-	} else {
-	    var hashErr error
-	    currentHash, hashErr = storage.HashFile(cleanPath)
-	    if hashErr != nil {
-	        return hashErr
-	    }
-	}
 
-	indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
-	if currentHash != indexHashHex {
-	    return errModified
-	}
+		var currentHash string
+		if lfi.Mode()&os.ModeSymlink != 0 {
+			// For symlinks, hash the link target PATH string (what the blob stores),
+			// not the target file's content (what os.ReadFile would return by
+			// following the link). HashFile uses os.ReadFile which follows symlinks
+			// and would always report a mismatch for correctly staged symlinks.
+			target, readlinkErr := os.Readlink(cleanPath)
+			if readlinkErr != nil {
+				return readlinkErr
+			}
+			var hashErr error
+			currentHash, hashErr = plumbing.HashAndWriteObject([]byte(target), "blob")
+			if hashErr != nil {
+				return hashErr
+			}
+		} else {
+			var hashErr error
+			currentHash, hashErr = storage.HashFile(cleanPath)
+			if hashErr != nil {
+				return hashErr
+			}
+		}
+
+		indexHashHex := hex.EncodeToString(indexEntry.Hash[:])
+		if currentHash != indexHashHex {
+			return errModified
+		}
 		return nil
 	})
 	if err != nil {
@@ -468,21 +469,21 @@ func GetHeadCommit() (models.Commit, error) {
 
 // copyRecursive copies a file or directory tree.
 func copyRecursive(src, dst string) error {
-    info, err := os.Lstat(src) // Lstat so symlinks are not followed
-    if err != nil {
-        return err
-    }
+	info, err := os.Lstat(src) // Lstat so symlinks are not followed
+	if err != nil {
+		return err
+	}
 
-    // Reproduce symlinks as symlinks, not as copies of their targets.
-    if info.Mode()&os.ModeSymlink != 0 {
-        target, err := os.Readlink(src)
-        if err != nil {
-            return err
-        }
-        return os.Symlink(target, dst)
-    }
+	// Reproduce symlinks as symlinks, not as copies of their targets.
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(src)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dst)
+	}
 
-    if info.IsDir() {
+	if info.IsDir() {
 		if err := os.MkdirAll(dst, info.Mode()); err != nil {
 			return err
 		}

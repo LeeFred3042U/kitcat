@@ -64,7 +64,10 @@ func Commit(message string) (string, error) {
 
 	// If it's a valid, resolved merge, inject the second parent.
 	if isMerge {
-		mergeHeadBytes, _ := os.ReadFile(mergeHeadPath)
+		mergeHeadBytes, err := os.ReadFile(mergeHeadPath)
+		if err != nil {
+		    return "", err
+		}
 		parents = append(parents, strings.TrimSpace(string(mergeHeadBytes)))
 
 		if message == "" {

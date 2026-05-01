@@ -21,17 +21,16 @@ type TreeEntry struct {
 }
 
 // CreateTree constructs a tree object from the current repository index
-// and writes it to object storage.
+// and writes it to object storage using a legacy flat text format
+// (one "mode hash path\n" line per entry).
 //
-// The index is flattened into a deterministic, sorted list of paths to
-// ensure stable tree hashes. Each entry is serialized as a line in the
-// format:
-//
-//	<mode> <hash> <path>
-//
-// The resulting tree representation is written to the object database
-// using plumbing.HashAndWriteObject, which returns the tree object's
-// content-addressed hash.
+// DEPRECATED (M4): This function is unreachable from any production code path.
+// plumbing.WriteTree (used everywhere else) writes proper binary Git tree
+// objects; having two incompatible tree formats in the same repo is a silent
+// landmine. ParseTree has a compatibility shim for the flat format, but new
+// code must never call CreateTree. This function is preserved only for
+// historical reference and will be removed in a future cleanup.
+// Replace any new call sites with plumbing.WriteTree instead.
 func CreateTree() (string, error) {
 	index, err := LoadIndex()
 	if err != nil {
@@ -85,9 +84,22 @@ func parseTreeRecursive(hash string, prefix string, tree map[string]TreeEntry) e
 		return err
 	}
 
-	// Detect legacy flat text tree format used by older snapshots.
-	// These contain newline-delimited entries without null separators.
-	if bytes.Contains(data, []byte("\n")) && !bytes.Contains(data, []byte("\x00")) {
+	// Detect legacy flat text tree format written by the now-deprecated
+	// CreateTree function. These objects contain newline-delimited text entries
+	// and no null bytes. The heuristic is intentionally conservative:
+	//
+	//   - We additionally require that the first byte is a digit so that a
+	//     single-entry binary tree whose path happens to contain '\n' but not
+	//     '\x00' does not get misidentified as legacy text.
+	//   - If no legacy repos exist, remove this entire branch; it adds overhead
+	//     to every ParseTree call and can in theory still misfire on exotic
+	//     binary trees (e.g. a path containing a newline followed immediately
+	//     by a digit).
+	//
+	// TODO (M5): gate on a version marker in the repo config rather than
+	// relying on content heuristics, then remove this branch entirely.
+	if len(data) > 0 && data[0] >= '0' && data[0] <= '9' &&
+		bytes.Contains(data, []byte("\n")) && !bytes.Contains(data, []byte("\x00")) {
 		scanner := bufio.NewScanner(bytes.NewReader(data))
 		for scanner.Scan() {
 			line := scanner.Text()

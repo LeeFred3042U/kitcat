@@ -185,7 +185,6 @@ func ClearStash() error {
 	return os.Truncate(getStashPath(), 0)
 }
 
-
 func DropStash(index int) error {
 	stashes, err := ListStashes()
 	if err != nil {

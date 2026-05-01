@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/LeeFred3042U/kitcat/internal/storage"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 const (
@@ -73,7 +73,11 @@ func ReadTree(treeHash string) error {
 // CheckoutTree compares the workspace vs the target tree and aligns them.
 // NOTE: Workspace updates are currently NOT transactional. Partial file
 // updates may remain on disk if an error occurs mid-operation.
-
+//
+// NOTE (L3): LoadIndex is called here outside of any index lock, so
+// this read races with a concurrent UpdateIndex write. This is a known
+// non-transactional limitation. If strict consistency is required,
+// callers should hold the index lock for the duration of this operation.
 func CheckoutTree(treeHash string) error {
 	targetTree, err := storage.ParseTree(treeHash)
 	if err != nil {
@@ -98,10 +102,11 @@ func CheckoutTree(treeHash string) error {
 		}
 
 		var modeVal uint32
-		fmt.Sscanf(entry.Mode, "%o", &modeVal)
-		
-		if modeVal == 0120000 {
-			// Symlink: content is the target path. 
+		if _, err := fmt.Sscanf(entry.Mode, "%o", &modeVal); err != nil {
+			modeVal = 0o100644
+		}
+		if modeVal == 0o120000 {
+			// Symlink: content is the target path.
 			os.Remove(path)
 			if err := os.Symlink(string(content), path); err != nil {
 				return err
@@ -188,7 +193,9 @@ func UnstageFile(commitStr string, paths []string) error {
 		for _, path := range paths {
 			if entry, exists := targetTree[path]; exists {
 				var mode uint32
-				fmt.Sscanf(entry.Mode, "%o", &mode)
+				if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
+					mode = 0o100644
+				}
 
 				hb, err := storage.HexToHash(entry.Hash)
 				if err != nil {

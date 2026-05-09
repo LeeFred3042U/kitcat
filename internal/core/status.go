@@ -126,7 +126,7 @@ func Status() (string, error) {
 			entryExec := (entry.Mode & 0o111) != 0
 			modeChanged := isExec != entryExec
 
-			hash, err := storage.HashFile(cleanPath)
+			hash, err := storage.HashAndStageBlob(cleanPath)
 			if err == nil {
 				entryHash := hex.EncodeToString(entry.Hash[:])
 				if hash != entryHash {

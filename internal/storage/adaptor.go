@@ -57,12 +57,12 @@ func ReadObject(hash string) ([]byte, error) {
 	}
 
 	// Object header ends at the first null byte; payload follows immediately.
-	nullIdx := bytes.IndexByte(raw, 0)
-	if nullIdx == -1 {
+	_, after, ok := bytes.Cut(raw, []byte{0})
+	if !ok {
 		return nil, fmt.Errorf("malformed object %s", hash)
 	}
 
-	return raw[nullIdx+1:], nil
+	return after, nil
 }
 
 // GetRef reads the content of a reference file located within the
@@ -226,7 +226,12 @@ func parseCommit(hash string, data []byte) (models.Commit, error) {
 	return c, nil
 }
 
-func HashFile(path string) (string, error) {
+// HashAndStageBlob reads the file at path (or the symlink target if path is a
+// symlink), writes its content as a "blob" object into the object store, and
+// returns the 40-character hex SHA-1 of that object. It both hashes AND
+// persists — callers that only want the hash without writing should not use
+// this function.
+func HashAndStageBlob(path string) (string, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err

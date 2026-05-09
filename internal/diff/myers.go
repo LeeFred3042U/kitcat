@@ -206,7 +206,7 @@ func (md *MyersDiff[T]) diffBisect(text1, text2 []T) []Diff[T] {
 	delta := text1Length - text2Length
 	front := (delta%2 != 0)
 
-	for d := 0; d < maxD; d++ {
+	for d := range maxD {
 
 		// Forward search.
 		for k1 := -d; k1 <= d; k1 += 2 {
@@ -292,7 +292,7 @@ func (md *MyersDiff[T]) diffBisectSplit(text1, text2 []T, x, y int) []Diff[T] {
 // two sequences.
 func (md *MyersDiff[T]) diffCommonPrefix(text1, text2 []T) int {
 	n := min(len(text1), len(text2))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if text1[i] != text2[i] {
 			return i
 		}
@@ -312,12 +312,4 @@ func (md *MyersDiff[T]) diffCommonSuffix(text1, text2 []T) int {
 		}
 	}
 	return n
-}
-
-// min returns the smaller of two integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

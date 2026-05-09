@@ -36,6 +36,8 @@ var commands = map[string]func([]string){
 	"config":      handleConfig,
 	"stash":       handleStash,
 	"help":        handleHelp,
+	"clone":       handleClone,
+	"push":        handlePush,
 }
 
 func main() {
@@ -72,7 +74,7 @@ func handleHelp(args []string) {
 	}
 }
 
-func die(format string, args ...interface{}) {
+func die(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "fatal: "+format+"\n", args...)
 	os.Exit(exitFailure)
 }

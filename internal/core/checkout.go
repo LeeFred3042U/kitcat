@@ -169,7 +169,7 @@ func CheckoutFile(filePath string) error {
 
 	// Safety check: refuse overwrite if file has local modifications or is untracked.
 	if _, err := os.Stat(filePath); err == nil {
-		currentHash, err := storage.HashFile(filePath)
+		currentHash, err := storage.HashAndStageBlob(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to calculate hash for safety check: %w", err)
 		}

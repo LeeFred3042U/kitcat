@@ -236,11 +236,3 @@ func slicesEqual(a, b []string) bool {
 
 	return true
 }
-
-// min returns the smaller of the two provided integers.
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

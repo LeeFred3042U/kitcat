@@ -127,15 +127,9 @@ func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	// Encode flags:
 	//   bits 12–13: stage (0–3)
 	//   bits 0–11 : path length (capped at 0xFFF)
-	nameLen := len(e.Path)
-	if nameLen > 0xFFF {
-		nameLen = 0xFFF
-	}
+	nameLen := min(len(e.Path), 0xFFF)
 	stage := uint16(e.Stage & 0x3)
-	length := uint16(nameLen)
-	if length > 0x0FFF {
-		length = 0x0FFF
-	}
+	length := min(uint16(nameLen), 0x0FFF)
 
 	flags := (stage << 12) | (length & 0x0FFF)
 
@@ -156,7 +150,7 @@ func writeEntry(buf *bytes.Buffer, e IndexEntry) error {
 	entrySize := 62 + len(e.Path) + 1
 	pad := (8 - (entrySize % 8)) % 8
 
-	for i := 0; i < pad; i++ {
+	for range pad {
 		if err := buf.WriteByte(0); err != nil {
 			return err
 		}

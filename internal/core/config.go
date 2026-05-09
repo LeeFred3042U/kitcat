@@ -177,9 +177,9 @@ func readKeyFromPath(path, targetSection, targetSubsection, targetKey string) (s
 	}
 
 	var currentSection, currentSubsection string
-	lines := strings.Split(string(data), "\n")
+	lines := strings.SplitSeq(string(data), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		trimLine := strings.TrimSpace(line)
 		if trimLine == "" || strings.HasPrefix(trimLine, "#") || strings.HasPrefix(trimLine, ";") {
 			continue
@@ -217,9 +217,9 @@ func PrintAllConfig(global bool) error {
 	}
 
 	var currentSection, currentSubsection string
-	lines := strings.Split(string(data), "\n")
+	lines := strings.SplitSeq(string(data), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		trimLine := strings.TrimSpace(line)
 		if trimLine == "" || strings.HasPrefix(trimLine, "#") || strings.HasPrefix(trimLine, ";") {
 			continue

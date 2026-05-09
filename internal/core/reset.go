@@ -137,8 +137,8 @@ func UpdateRef(newCommit string, actionMsg string) error {
 	var oldCommit string
 	var targetRefPath string
 
-	if strings.HasPrefix(ref, "ref: ") {
-		targetRefPath = strings.TrimPrefix(ref, "ref: ")
+	if after, ok := strings.CutPrefix(ref, "ref: "); ok {
+		targetRefPath = after
 		branchFile := filepath.Join(".kitcat", targetRefPath)
 
 		if b, err := os.ReadFile(branchFile); err == nil {

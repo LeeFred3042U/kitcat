@@ -213,15 +213,15 @@ func parseReceivePackResult(r io.Reader) error {
 			continue // flush packet
 		}
 		// Server sends "unpack ok" or "unpack <error>" then per-ref status lines.
-		if strings.HasPrefix(line, "unpack ") {
-			status := strings.TrimPrefix(line, "unpack ")
+		if after, ok := strings.CutPrefix(line, "unpack "); ok {
+			status := after
 			if status != "ok" {
 				return fmt.Errorf("server rejected pack: %s", status)
 			}
 		}
-		if strings.HasPrefix(line, "ng ") {
+		if after, ok := strings.CutPrefix(line, "ng "); ok {
 			// "ng <refname> <reason>" — server rejected this ref update.
-			return fmt.Errorf("ref update rejected by server: %s", strings.TrimPrefix(line, "ng "))
+			return fmt.Errorf("ref update rejected by server: %s", after)
 		}
 	}
 }

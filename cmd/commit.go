@@ -12,8 +12,8 @@ import (
 func handleCommit(args []string) {
 	var cleanArgs []string
 	for _, a := range args {
-		if strings.HasPrefix(a, "-am=") {
-			cleanArgs = append(cleanArgs, "-a", "-m", strings.TrimPrefix(a, "-am="))
+		if after, ok := strings.CutPrefix(a, "-am="); ok {
+			cleanArgs = append(cleanArgs, "-a", "-m", after)
 			continue
 		}
 		if strings.HasPrefix(a, "-am") && a != "-a" && a != "-m" {

@@ -9,8 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	
 )
 
 // Pack object type constants (types 6 and 7 are delta-encoded).
@@ -70,7 +68,7 @@ func unpackPackfile(r io.Reader, objectsDir string) error {
 	offsetToSHA := make(map[int64]string, count)
 	var pending []rawEntry
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		// Record offset relative to start of packfile data (after 12-byte header).
 		entryOffset := int64(len(all)) - int64(br.Len())
 		objType, _, err := readPackObjectHeader(br)
@@ -228,7 +226,7 @@ func applyDelta(base, delta []byte) ([]byte, error) {
 			//   s bits select which of 3 size bytes follow
 			var offset, size uint32
 
-			for i := uint(0); i < 4; i++ {
+			for i := range uint(4) {
 				if cmd&(1<<i) != 0 {
 					b, err := r.ReadByte()
 					if err != nil {
@@ -237,7 +235,7 @@ func applyDelta(base, delta []byte) ([]byte, error) {
 					offset |= uint32(b) << (i * 8)
 				}
 			}
-			for i := uint(0); i < 3; i++ {
+			for i := range uint(3) {
 				if cmd&(1<<(i+4)) != 0 {
 					b, err := r.ReadByte()
 					if err != nil {
@@ -393,13 +391,13 @@ func readLooseObject(sha, objectsDir string) ([]byte, int, error) {
 	}
 	full := buf.Bytes()
 
-	nullIdx := bytes.IndexByte(full, 0)
-	if nullIdx == -1 {
+	before, after, ok := bytes.Cut(full, []byte{0})
+	if !ok {
 		return nil, 0, fmt.Errorf("malformed object %s", sha)
 	}
 
-	headerStr := string(full[:nullIdx])
-	payload := full[nullIdx+1:]
+	headerStr := string(before)
+	payload := after
 
 	var typeID int
 	switch {
@@ -475,7 +473,6 @@ func zlibDecompressExact(br *bytes.Reader) ([]byte, error) {
 
 	return out.Bytes(), nil
 }
-
 
 // packTypeToName maps a pack object type constant to its string name.
 func packTypeToName(t int) string {

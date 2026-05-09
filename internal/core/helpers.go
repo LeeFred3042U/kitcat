@@ -279,7 +279,7 @@ func IsWorkDirDirty() (bool, error) {
 		if lfi.Mode()&os.ModeSymlink != 0 {
 			// For symlinks, hash the link target PATH string (what the blob stores),
 			// not the target file's content (what os.ReadFile would return by
-			// following the link). HashFile uses os.ReadFile which follows symlinks
+			// following the link). HashAndStageBlob uses os.ReadFile which follows symlinks
 			// and would always report a mismatch for correctly staged symlinks.
 			target, readlinkErr := os.Readlink(cleanPath)
 			if readlinkErr != nil {
@@ -292,7 +292,7 @@ func IsWorkDirDirty() (bool, error) {
 			}
 		} else {
 			var hashErr error
-			currentHash, hashErr = storage.HashFile(cleanPath)
+			currentHash, hashErr = storage.HashAndStageBlob(cleanPath)
 			if hashErr != nil {
 				return hashErr
 			}
@@ -419,7 +419,7 @@ func SafeWrite(filename string, data []byte, perm os.FileMode) error {
 	const maxRetries = 5
 	delay := 10 * time.Millisecond
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		err = os.Rename(tmpName, filename)
 		if err == nil {
 			break

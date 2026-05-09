@@ -131,7 +131,7 @@ func StashPush(message string) error {
 	err = storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 		for path, entry := range index {
 			if info, err := os.Stat(path); err == nil && !info.IsDir() {
-				hashStr, err := storage.HashFile(path)
+				hashStr, err := storage.HashAndStageBlob(path)
 				if err != nil {
 					return fmt.Errorf("failed to hash file %s: %w", path, err)
 				}

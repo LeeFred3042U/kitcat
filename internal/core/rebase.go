@@ -222,8 +222,8 @@ func GetCurrentBranch() (string, error) {
 		return "", err
 	}
 	content := strings.TrimSpace(string(head))
-	if strings.HasPrefix(content, "ref: refs/heads/") {
-		return strings.TrimPrefix(content, "ref: refs/heads/"), nil
+	if after, ok := strings.CutPrefix(content, "ref: refs/heads/"); ok {
+		return after, nil
 	}
 	return "", fmt.Errorf("detached HEAD")
 }
@@ -355,7 +355,7 @@ func promptInteractiveRebase(steps []string) ([]string, error) {
 	}
 
 	var kept []string
-	for _, line := range strings.Split(editedData, "\n") {
+	for line := range strings.SplitSeq(editedData, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

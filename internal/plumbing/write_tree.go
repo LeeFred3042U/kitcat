@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 )
 
 // treeNode represents an intermediate in-memory directory tree used
@@ -121,13 +123,12 @@ func writeTreeRecursive(node *treeNode) (string, error) {
 
 		// Tree hashes are returned as hex strings; convert back to raw bytes
 		// because tree object format stores binary SHA-1 values.
-		hashBytes, err := HexToHash(treeHashHex)
+		hashBytes, err := hashutil.DecodeHex(treeHashHex)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert tree hash for directory %s: %w", name, err)
 		}
 
-		var h [20]byte
-		copy(h[:], hashBytes)
+		h := hashBytes
 
 		entries = append(entries, treeEntry{
 			mode: 0o40000, // Standard Git tree mode for directories

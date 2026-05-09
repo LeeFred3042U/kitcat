@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
@@ -191,7 +192,7 @@ func RestoreIndexFromCommit(commitID string) error {
 		}
 
 		for path, entry := range tree {
-			hb, _ := storage.HexToHash(entry.Hash)
+			hb, _ := hashutil.DecodeHex(entry.Hash)
 
 			var mode uint32
 			if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {

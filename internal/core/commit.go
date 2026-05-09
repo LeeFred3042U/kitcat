@@ -66,7 +66,7 @@ func Commit(message string) (string, error) {
 	if isMerge {
 		mergeHeadBytes, err := os.ReadFile(mergeHeadPath)
 		if err != nil {
-		    return "", err
+			return "", err
 		}
 		parents = append(parents, strings.TrimSpace(string(mergeHeadBytes)))
 

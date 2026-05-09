@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
@@ -197,7 +198,7 @@ func UnstageFile(commitStr string, paths []string) error {
 					mode = 0o100644
 				}
 
-				hb, err := storage.HexToHash(entry.Hash)
+				hb, err := hashutil.DecodeHex(entry.Hash)
 				if err != nil {
 					return err
 				}

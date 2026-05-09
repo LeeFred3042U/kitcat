@@ -1,11 +1,11 @@
 package storage
 
 import (
-	"encoding/hex"
 	"fmt"
 	"os"
 	"sort"
 
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
@@ -93,7 +93,7 @@ func WriteIndexFromTree(tree map[string]TreeEntry) error {
 
 	indexMap := make(map[string]plumbing.IndexEntry)
 	for path, entry := range tree {
-		hb, _ := HexToHash(entry.Hash)
+		hb, _ := hashutil.DecodeHex(entry.Hash)
 
 		var mode uint32
 		if _, err := fmt.Sscanf(entry.Mode, "%o", &mode); err != nil {
@@ -128,19 +128,4 @@ func writeMapToDisk(indexMap map[string]plumbing.IndexEntry) error {
 		return err
 	}
 	return plumbing.UpdateIndex(entries, repo.IndexPath)
-}
-
-// HexToHash converts a hexadecimal SHA-1 string into its fixed-length
-// [20]byte representation used by plumbing.IndexEntry.
-//
-// The function decodes the hex string into raw bytes and copies the
-// result into a fixed-size array suitable for use in index structures.
-func HexToHash(s string) ([20]byte, error) {
-	var out [20]byte
-	slice, err := hex.DecodeString(s)
-	if err != nil {
-		return out, err
-	}
-	copy(out[:], slice)
-	return out, nil
 }

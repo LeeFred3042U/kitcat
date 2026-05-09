@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -135,7 +136,7 @@ func StashPush(message string) error {
 				if err != nil {
 					return fmt.Errorf("failed to hash file %s: %w", path, err)
 				}
-				hashBytes, _ := storage.HexToHash(hashStr)
+				hashBytes, _ := hashutil.DecodeHex(hashStr)
 				entry.Hash = hashBytes
 				index[path] = entry // Write back to the map
 			}

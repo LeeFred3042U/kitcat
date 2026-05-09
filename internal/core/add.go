@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -267,7 +268,7 @@ func stageFile(fullPath, cleanPath string, info os.FileInfo,
 		return false, fmt.Errorf("failed to write blob for %s: %w", cleanPath, err)
 	}
 
-	hashBytes, _ := storage.HexToHash(hashStr)
+	hashBytes, _ := hashutil.DecodeHex(hashStr)
 	entry.Hash = hashBytes
 
 	index[cleanPath] = entry

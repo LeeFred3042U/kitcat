@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
@@ -49,7 +50,7 @@ func ApplyMergePlan(plan *MergePlan) error {
 				return err
 			}
 
-			hb, _ := storage.HexToHash(entry.Hash)
+			hb, _ := hashutil.DecodeHex(entry.Hash)
 			index[path] = plumbing.IndexEntry{
 				Path:  path,
 				Hash:  hb,
@@ -79,7 +80,7 @@ func ApplyMergePlan(plan *MergePlan) error {
 			// multiple stage entries (1,2,3) for the same path cannot be
 			// represented simultaneously. As a workaround, the "ours"
 			// version is stored with Stage=2 to signal a conflicted entry.
-			hb, _ := storage.HexToHash(conflict.OursHash)
+			hb, _ := hashutil.DecodeHex(conflict.OursHash)
 			index[path] = plumbing.IndexEntry{
 				Path:  path,
 				Hash:  hb,

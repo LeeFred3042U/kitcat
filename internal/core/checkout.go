@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -125,7 +126,7 @@ func Checkout(target string, force bool) error {
 			}
 
 			// Convert hex blob hash into binary index hash.
-			hb, _ := storage.HexToHash(entry.Hash)
+			hb, _ := hashutil.DecodeHex(entry.Hash)
 
 			index[path] = plumbing.IndexEntry{
 				Path: path,
@@ -219,7 +220,7 @@ func CheckoutFile(filePath string) error {
 	// after checkout. Without this, the index still holds the old hash and
 	// `status` continues to report the file as modified; the next commit
 	// would also use the stale hash unless the user runs `add` manually.
-	hb, err := storage.HexToHash(entry.Hash)
+	hb, err := hashutil.DecodeHex(entry.Hash)
 	if err != nil {
 		return fmt.Errorf("failed to decode hash for index update: %w", err)
 	}

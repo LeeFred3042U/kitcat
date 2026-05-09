@@ -23,7 +23,6 @@
 package plumbing
 
 import (
-	"fmt"
 	"os"
 )
 
@@ -37,25 +36,4 @@ import (
 // externally.
 func SafeWriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
-}
-
-// HexToHash converts a 40-character hexadecimal SHA-1 string into its
-// raw 20-byte representation.
-//
-// The function validates that the input string length matches the
-// expected SHA-1 hex length and then parses each byte explicitly.
-// Parsing is performed per byte to ensure strict decoding and to
-// detect malformed hex sequences early.
-func HexToHash(s string) ([]byte, error) {
-	if len(s) != 40 {
-		return nil, fmt.Errorf("invalid hash length: %d", len(s))
-	}
-	out := make([]byte, 20)
-	for i := range 20 {
-		// Parse two hex characters per byte
-		if _, err := fmt.Sscanf(s[i*2:i*2+2], "%02x", &out[i]); err != nil {
-			return nil, fmt.Errorf("invalid hex at index %d: %w", i, err)
-		}
-	}
-	return out, nil
 }

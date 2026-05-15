@@ -75,47 +75,37 @@ func GetRef(name string) (string, error) {
 	return strings.TrimSpace(string(b)), err
 }
 
-// ReadCommits walks commit history starting from the current HEAD and
-// returns a linear slice of commits following parent pointers.
-//
-// Traversal stops when:
-//   - A commit has no parent (root commit)
-//   - A referenced parent cannot be resolved
-//   - A previously seen commit ID appears (cycle protection)
-//
-// Cycle detection protects against corrupted commit graphs that could
-// otherwise produce infinite loops.
 func ReadCommits() ([]models.Commit, error) {
-	head, err := GetLastCommit()
-	if err != nil {
-		if err == ErrNoCommits {
-			return nil, nil
-		}
-		return nil, err
-	}
+    head, err := GetLastCommit()
+    if err != nil {
+        if err == ErrNoCommits { return nil, nil }
+        return nil, err
+    }
 
-	var commits []models.Commit
-	curr := head
-	seen := make(map[string]bool)
+    type entry struct {
+        commit    models.Commit
+        timestamp time.Time
+    }
 
-	for {
-		// Prevent infinite loops if history becomes cyclic due to corruption.
-		if seen[curr.ID] {
-			break
-		}
-		seen[curr.ID] = true
+    seen := make(map[string]bool)
+    queue := []models.Commit{head}
+    var result []models.Commit
 
-		commits = append(commits, curr)
-		if len(curr.Parents) == 0 {
-			break
-		}
+    for len(queue) > 0 {
+        curr := popNewest(&queue)
+        if seen[curr.ID] { continue }
+        seen[curr.ID] = true
+        result = append(result, curr)
 
-		curr, err = FindCommit(curr.Parents[0])
-		if err != nil {
-			break
-		}
-	}
-	return commits, nil
+        for _, parentID := range curr.Parents {
+            if !seen[parentID] {
+                parent, err := FindCommit(parentID)
+                if err != nil { continue }
+                queue = append(queue, parent)
+            }
+        }
+    }
+    return result, nil
 }
 
 // GetLastCommit resolves the repository HEAD reference to the most
@@ -326,38 +316,49 @@ func collectAncestors(start string) (map[string]bool, error) {
 	return visited, nil
 }
 
-// FindMergeBases returns all lowest common ancestors (Git-style merge bases)
+//  one reverse BFS/DFS from all common ancestors is done  simultaneously
 func FindMergeBases(h1, h2 string) ([]string, error) {
-	// Step 1: collect all ancestors of both commits
-	anc1, err := collectAncestors(h1)
-	if err != nil {
-		return nil, err
-	}
+    anc1, err := collectAncestors(h1)
+    if err != nil { return nil, err }
+    anc2, err := collectAncestors(h2)
+    if err != nil { return nil, err }
 
-	anc2, err := collectAncestors(h2)
-	if err != nil {
-		return nil, err
-	}
+    var common []string
+    for a := range anc1 {
+        if anc2[a] {
+            common = append(common, a)
+        }
+    }
+    if len(common) == 0 {
+        return nil, fmt.Errorf("no merge base found")
+    }
 
-	// Step 2: intersection
-	common := make(map[string]bool)
-	for a := range anc1 {
-		if anc2[a] {
-			common[a] = true
-		}
-	}
+    dominated := make(map[string]bool)
+    for _, start := range common {
+        c, err := FindCommit(start)
+        if err != nil { continue }
+        queue := c.Parents
+        visited := map[string]bool{start: true}
+        for len(queue) > 0 {
+            curr := queue[0]; queue = queue[1:]
+            if visited[curr] { continue }
+            visited[curr] = true
+            for _, ca := range common {
+                if curr == ca && ca != start {
+                    dominated[ca] = true
+                }
+            }
+            commit, err := FindCommit(curr)
+            if err != nil { continue }
+            queue = append(queue, commit.Parents...)
+        }
+    }
 
-	if len(common) == 0 {
-		return nil, fmt.Errorf("no merge base found")
-	}
-
-	// Step 3: prune non-lowest ancestors
-	result := make([]string, 0)
-	for c := range common {
-		if !isReachableFromAny(c, common) {
-			result = append(result, c)
-		}
-	}
-
-	return result, nil
+    var result []string
+    for _, ca := range common {
+        if !dominated[ca] {
+            result = append(result, ca)
+        }
+    }
+    return result, nil
 }

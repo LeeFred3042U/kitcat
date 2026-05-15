@@ -27,22 +27,30 @@ var (
 )
 
 func selectBestMergeBase(bases []string) (string, error) {
-	if len(bases) == 0 {
-		return "", fmt.Errorf("no merge base found")
-	}
-	if len(bases) == 1 {
-		return bases[0], nil
-	}
+    if len(bases) == 0 {
+        return "", fmt.Errorf("no merge base found")
+    }
+    if len(bases) == 1 {
+        return bases[0], nil
+    }
 
-	// TODO: replace with generation-based scoring later
-	// For now: deterministic pick (lexicographically smallest)
-	best := bases[0]
-	for _, b := range bases[1:] {
-		if b < best {
-			best = b
-		}
-	}
-	return best, nil
+    best := bases[0]
+    bestCommit, err := storage.FindCommit(best)
+    if err != nil {
+        return best, nil
+    }
+
+    for _, b := range bases[1:] {
+        c, err := storage.FindCommit(b)
+        if err != nil {
+            continue
+        }
+        if c.Timestamp.After(bestCommit.Timestamp) {
+            best = b
+            bestCommit = c
+        }
+    }
+    return best, nil
 }
 
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.

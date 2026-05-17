@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
 
@@ -143,7 +144,7 @@ func SetConfig(fullKey, value string, global bool) error {
 		out = append(out, "")
 	}
 
-	return SafeWrite(path, []byte(strings.Join(out, "\n")), 0o644)
+	return atomicio.WriteFile(path, []byte(strings.Join(out, "\n")), 0o644)
 }
 
 // GetConfig retrieves a value from the INI configuration file.

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	atomicio "github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -149,14 +150,14 @@ func UpdateRef(newCommit string, actionMsg string) error {
 		// Write to reflog BEFORE the atomic ref update for crash recovery
 		_ = ReflogAppend(targetRefPath, oldCommit, newCommit, actionMsg)
 
-		if err := SafeWrite(branchFile, []byte(newCommit), 0o644); err != nil {
+		if err := atomicio.WriteFile(branchFile, []byte(newCommit), 0o644); err != nil {
 			return fmt.Errorf("failed to update branch ref: %w", err)
 		}
 
 	} else {
 		oldCommit = ref
 
-		if err := SafeWrite(headPath, []byte(newCommit), 0o644); err != nil {
+		if err := atomicio.WriteFile(headPath, []byte(newCommit), 0o644); err != nil {
 			return fmt.Errorf("failed to update detached HEAD: %w", err)
 		}
 	}

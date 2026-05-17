@@ -6,12 +6,6 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/diff"
 )
 
-// Edit represents a modification applied to a contiguous region of the
-// base text during merge processing.
-//
-// BaseStart and BaseEnd define the affected range in the base text
-// (half-open interval). Lines contains the replacement lines introduced
-// by the edit.
 type Edit struct {
 	BaseStart int
 	BaseEnd   int

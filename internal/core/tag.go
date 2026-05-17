@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	atomicio "github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 )
@@ -47,7 +48,7 @@ func CreateTag(tagName, commitHash string, force bool) error {
 		return fmt.Errorf("tag '%s' already exists", tagName)
 	}
 
-	if err := SafeWrite(tagPath, []byte(commitHash+"\n"), 0o644); err != nil {
+	if err := atomicio.WriteFile(tagPath, []byte(commitHash+"\n"), 0o644); err != nil {
 		return err
 	}
 
@@ -103,7 +104,7 @@ func CreateAnnotatedTag(tagName, commitHash, message string, force bool) error {
 		return fmt.Errorf("failed to write tag object: %w", err)
 	}
 
-	if err := SafeWrite(tagPath, []byte(tagHash+"\n"), 0o644); err != nil {
+	if err := atomicio.WriteFile(tagPath, []byte(tagHash+"\n"), 0o644); err != nil {
 		return err
 	}
 

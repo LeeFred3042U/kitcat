@@ -75,39 +75,6 @@ func GetRef(name string) (string, error) {
 	return strings.TrimSpace(string(b)), err
 }
 
-func ReadCommits() ([]models.Commit, error) {
-    head, err := GetLastCommit()
-    if err != nil {
-        if err == ErrNoCommits { return nil, nil }
-        return nil, err
-    }
-
-    type entry struct {
-        commit    models.Commit
-        timestamp time.Time
-    }
-
-    seen := make(map[string]bool)
-    queue := []models.Commit{head}
-    var result []models.Commit
-
-    for len(queue) > 0 {
-        curr := popNewest(&queue)
-        if seen[curr.ID] { continue }
-        seen[curr.ID] = true
-        result = append(result, curr)
-
-        for _, parentID := range curr.Parents {
-            if !seen[parentID] {
-                parent, err := FindCommit(parentID)
-                if err != nil { continue }
-                queue = append(queue, parent)
-            }
-        }
-    }
-    return result, nil
-}
-
 // GetLastCommit resolves the repository HEAD reference to the most
 // recent commit object.
 //
@@ -243,51 +210,6 @@ func HashAndStageBlob(path string) (string, error) {
 	return plumbing.HashAndWriteObject(content, "blob")
 }
 
-func isReachable(from, target string) bool {
-	queue := []string{from}
-	visited := make(map[string]bool)
-
-	for len(queue) > 0 {
-		curr := queue[0]
-		queue = queue[1:]
-
-		if curr == target {
-			return true
-		}
-
-		if visited[curr] {
-			continue
-		}
-		visited[curr] = true
-
-		c, err := FindCommit(curr)
-		if err != nil {
-			continue // skip broken paths
-		}
-
-		for _, p := range c.Parents {
-			if !visited[p] {
-				queue = append(queue, p)
-			}
-		}
-	}
-
-	return false
-}
-
-// isReachableFromAny checks if `target` is reachable from any other node in `common`
-func isReachableFromAny(target string, common map[string]bool) bool {
-	for other := range common {
-		if other == target {
-			continue
-		}
-		if isReachable(other, target) {
-			return true
-		}
-	}
-	return false
-}
-
 func collectAncestors(start string) (map[string]bool, error) {
 	visited := make(map[string]bool)
 	queue := []string{start}
@@ -316,49 +238,92 @@ func collectAncestors(start string) (map[string]bool, error) {
 	return visited, nil
 }
 
-//  one reverse BFS/DFS from all common ancestors is done  simultaneously
 func FindMergeBases(h1, h2 string) ([]string, error) {
-    anc1, err := collectAncestors(h1)
-    if err != nil { return nil, err }
-    anc2, err := collectAncestors(h2)
-    if err != nil { return nil, err }
+	anc1, err := collectAncestors(h1)
+	if err != nil {
+		return nil, err
+	}
+	anc2, err := collectAncestors(h2)
+	if err != nil {
+		return nil, err
+	}
 
-    var common []string
-    for a := range anc1 {
-        if anc2[a] {
-            common = append(common, a)
-        }
-    }
-    if len(common) == 0 {
-        return nil, fmt.Errorf("no merge base found")
-    }
+	var common []string
+	for sha := range anc1 {
+		if anc2[sha] {
+			common = append(common, sha)
+		}
+	}
+	if len(common) == 0 {
+		return nil, fmt.Errorf("no merge base found between %s and %s", h1[:8], h2[:8])
+	}
 
-    dominated := make(map[string]bool)
-    for _, start := range common {
-        c, err := FindCommit(start)
-        if err != nil { continue }
-        queue := c.Parents
-        visited := map[string]bool{start: true}
-        for len(queue) > 0 {
-            curr := queue[0]; queue = queue[1:]
-            if visited[curr] { continue }
-            visited[curr] = true
-            for _, ca := range common {
-                if curr == ca && ca != start {
-                    dominated[ca] = true
-                }
-            }
-            commit, err := FindCommit(curr)
-            if err != nil { continue }
-            queue = append(queue, commit.Parents...)
-        }
-    }
+	if len(common) == 1 {
+		return common, nil
+	}
 
-    var result []string
-    for _, ca := range common {
-        if !dominated[ca] {
-            result = append(result, ca)
-        }
-    }
-    return result, nil
+	commonSet := make(map[string]bool, len(common))
+	for _, sha := range common {
+		commonSet[sha] = true
+	}
+
+	dominated := make(map[string]bool, len(common))
+
+	for _, start := range common {
+		if dominated[start] {
+			continue
+		}
+
+		startCommit, err := FindCommit(start)
+		if err != nil {
+			continue
+		}
+
+		visited := map[string]bool{start: true}
+		queue := make([]string, len(startCommit.Parents))
+		copy(queue, startCommit.Parents)
+
+		for len(queue) > 0 {
+			curr := queue[0]
+			queue = queue[1:]
+
+			if visited[curr] {
+				continue
+			}
+			visited[curr] = true
+
+			if commonSet[curr] && curr != start {
+				dominated[curr] = true
+			}
+
+			allFound := true
+			for _, ca := range common {
+				if !dominated[ca] && ca != start && !visited[ca] {
+					allFound = false
+					break
+				}
+			}
+			if allFound {
+				break
+			}
+
+			c, err := FindCommit(curr)
+			if err != nil {
+				continue
+			}
+			for _, p := range c.Parents {
+				if !visited[p] {
+					queue = append(queue, p)
+				}
+			}
+		}
+	}
+
+	var result []string
+	for _, sha := range common {
+		if !dominated[sha] {
+			result = append(result, sha)
+		}
+	}
+	return result, nil
 }

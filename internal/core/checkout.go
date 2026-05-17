@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
@@ -19,7 +20,6 @@ import (
 // the working tree to match the target commit. Index entries are rebuilt
 // inside a transactional storage.UpdateIndex call.
 func Checkout(target string, force bool) error {
-	// 1. PREFLIGHT: Abort if worktree is dirty unless forced.
 	if !force {
 		dirty, err := IsWorkDirDirty()
 		if err != nil {
@@ -141,7 +141,7 @@ func Checkout(target string, force bool) error {
 	}
 
 	// 4. INVARIANT: HEAD moves last!
-	if err := SafeWrite(repo.HeadPath, []byte(headContent), 0o644); err != nil {
+	if err := atomicio.WriteFile(repo.HeadPath, []byte(headContent), 0o644); err != nil {
 		return err
 	}
 

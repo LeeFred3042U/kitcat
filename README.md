@@ -111,7 +111,7 @@ internal/
     config.go            GetConfig, SetConfig, PrintAllConfig
     diff.go              Diff (staged and unstaged)
     grep.go              Grep
-    helpers.go           SafeWrite, FindRepoRoot, ReflogAppend, ...
+    helpers.go           atomicio.WriteFile, FindRepoRoot, ReflogAppend, ...
     ignore.go            LoadIgnorePatterns, ShouldIgnore
     index.go             Legacy JSON index (kept for compatibility)
     init.go              Init
@@ -883,7 +883,7 @@ internal/
     config.go            GetConfig, SetConfig, PrintAllConfig
     diff.go              Diff (staged and unstaged)
     grep.go              Grep
-    helpers.go           SafeWrite, FindRepoRoot, ReflogAppend, ...
+    helpers.go           atomicio.WriteFile, FindRepoRoot, ReflogAppend, ...
     ignore.go            LoadIgnorePatterns, ShouldIgnore
     index.go             Legacy JSON index (kept for compatibility)
     init.go              Init

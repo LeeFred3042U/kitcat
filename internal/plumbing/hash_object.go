@@ -65,7 +65,7 @@ func HashAndWriteObject(content []byte, objType string) (string, error) {
 		// partial (corrupt) object if the process crashes mid-write; the existence
 		// check above would then skip re-writing it permanently.
 		//
-		// NOTE: storage.SafeWriteFile implements the same pattern but importing
+		// NOTE: storage.atomicio.WriteFileFile implements the same pattern but importing
 		// the storage package from plumbing would create an import cycle
 		// (storage → plumbing → storage). The equivalent logic is therefore
 		// duplicated here. If this package is ever restructured into a separate

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	"github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -146,60 +147,63 @@ func CommitAll(message string) (string, error) {
 }
 
 func AmendCommit(message string) (string, error) {
-    if _, err := os.Stat(filepath.Join(repo.Dir, "MERGE_HEAD")); err == nil {
-        return "", fmt.Errorf("fatal: You are in the middle of a merge -- cannot amend.")
-    }
+	if _, err := os.Stat(filepath.Join(repo.Dir, "MERGE_HEAD")); err == nil {
+		return "", fmt.Errorf("fatal: You are in the middle of a merge -- cannot amend.")
+	}
 
-    head, err := storage.GetLastCommit()
-    if err != nil {
-        return "", fmt.Errorf("nothing to amend")
-    }
-    oldHeadHash := head.ID
+	head, err := storage.GetLastCommit()
+	if err != nil {
+		return "", fmt.Errorf("nothing to amend")
+	}
+	oldHeadHash := head.ID
 
-    if message == "" {
-        message = head.Message
-    }
+	if message == "" {
+		message = head.Message
+	}
 
-    treeHash, err := plumbing.WriteTree(repo.IndexPath)
-    if err != nil {
-        return "", err
-    }
+	treeHash, err := plumbing.WriteTree(repo.IndexPath)
+	if err != nil {
+		return "", err
+	}
 
-    parents := head.Parents
+	parents := head.Parents
 
-    name, _, _ := GetConfig("user.name")
-    email, _, _ := GetConfig("user.email")
-    if name == "" { name = "Unknown" }
-    if email == "" { email = "unknown@example.com" }
-    authorStr := fmt.Sprintf("%s <%s>", name, email)
+	name, _, _ := GetConfig("user.name")
+	email, _, _ := GetConfig("user.email")
+	if name == "" {
+		name = "Unknown"
+	}
+	if email == "" {
+		email = "unknown@example.com"
+	}
+	authorStr := fmt.Sprintf("%s <%s>", name, email)
 
-    opts := plumbing.CommitOptions{
-        Tree:      treeHash,
-        Parents:   parents,
-        Author:    authorStr,
-        Committer: authorStr,
-        Message:   message,
-    }
+	opts := plumbing.CommitOptions{
+		Tree:      treeHash,
+		Parents:   parents,
+		Author:    authorStr,
+		Committer: authorStr,
+		Message:   message,
+	}
 
-    commitHash, err := plumbing.CommitTree(opts)
-    if err != nil {
-        return "", err
-    }
+	commitHash, err := plumbing.CommitTree(opts)
+	if err != nil {
+		return "", err
+	}
 
-    if err := updateHead(commitHash); err != nil {
-        return "", err
-    }
+	if err := updateHead(commitHash); err != nil {
+		return "", err
+	}
 
-    headData, _ := os.ReadFile(repo.HeadPath)
-    ref := strings.TrimSpace(string(headData))
-    if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
-        ReflogAppend(refPath, oldHeadHash, commitHash, "commit (amend): "+message)
-    }
-    ReflogAppend("HEAD", oldHeadHash, commitHash, "commit (amend): "+message)
+	headData, _ := os.ReadFile(repo.HeadPath)
+	ref := strings.TrimSpace(string(headData))
+	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
+		ReflogAppend(refPath, oldHeadHash, commitHash, "commit (amend): "+message)
+	}
+	ReflogAppend("HEAD", oldHeadHash, commitHash, "commit (amend): "+message)
 
-    return commitHash, nil
+	return commitHash, nil
 }
-
 
 func updateHead(commitHash string) error {
 	headData, _ := os.ReadFile(repo.HeadPath)
@@ -211,9 +215,9 @@ func updateHead(commitHash string) error {
 		if err := os.MkdirAll(filepath.Dir(fullRefPath), 0o755); err != nil {
 			return err
 		}
-		return SafeWrite(fullRefPath, []byte(commitHash), 0o644)
+		return atomicio.WriteFile(fullRefPath, []byte(commitHash), 0o644)
 	}
 
 	// Detached HEAD → write the new commit hash directly to HEAD.
-	return SafeWrite(repo.HeadPath, []byte(commitHash), 0o644)
+	return atomicio.WriteFile(repo.HeadPath, []byte(commitHash), 0o644)
 }

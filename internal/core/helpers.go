@@ -11,9 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/models"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
@@ -27,30 +27,30 @@ var (
 )
 
 func selectBestMergeBase(bases []string) (string, error) {
-    if len(bases) == 0 {
-        return "", fmt.Errorf("no merge base found")
-    }
-    if len(bases) == 1 {
-        return bases[0], nil
-    }
+	if len(bases) == 0 {
+		return "", fmt.Errorf("no merge base found")
+	}
+	if len(bases) == 1 {
+		return bases[0], nil
+	}
 
-    best := bases[0]
-    bestCommit, err := storage.FindCommit(best)
-    if err != nil {
-        return best, nil
-    }
+	best := bases[0]
+	bestCommit, err := storage.FindCommit(best)
+	if err != nil {
+		return best, nil
+	}
 
-    for _, b := range bases[1:] {
-        c, err := storage.FindCommit(b)
-        if err != nil {
-            continue
-        }
-        if c.Timestamp.After(bestCommit.Timestamp) {
-            best = b
-            bestCommit = c
-        }
-    }
-    return best, nil
+	for _, b := range bases[1:] {
+		c, err := storage.FindCommit(b)
+		if err != nil {
+			continue
+		}
+		if c.Timestamp.After(bestCommit.Timestamp) {
+			best = b
+			bestCommit = c
+		}
+	}
+	return best, nil
 }
 
 // CaptureViaEditor opens the user's preferred terminal editor to capture text.
@@ -346,13 +346,13 @@ func UpdateBranchPointer(commitHash string) error {
 
 	if refPath, ok := strings.CutPrefix(ref, "ref: "); ok {
 		branchFile := filepath.Join(repo.Dir, refPath)
-		if err := SafeWrite(branchFile, []byte(commitHash), 0o644); err != nil {
+		if err := atomicio.WriteFile(branchFile, []byte(commitHash), 0o644); err != nil {
 			return fmt.Errorf("failed to update branch pointer: %w", err)
 		}
 		return nil
 	}
 
-	if err := SafeWrite(repo.HeadPath, []byte(commitHash), 0o644); err != nil {
+	if err := atomicio.WriteFile(repo.HeadPath, []byte(commitHash), 0o644); err != nil {
 		return fmt.Errorf("failed to update HEAD: %w", err)
 	}
 	return nil
@@ -387,84 +387,6 @@ func IsSafePath(path string) bool {
 		return false
 	}
 	return true
-}
-
-// SafeWrite performs atomic file updates with a Windows-safe retry loop.
-func SafeWrite(filename string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(filename)
-
-	// Create temp file in same directory
-	f, err := os.CreateTemp(dir, "atomic-")
-	if err != nil {
-		return err
-	}
-	tmpName := f.Name()
-
-	cleanup := func(e error) error {
-		f.Close()
-		_ = os.Remove(tmpName)
-		return e
-	}
-
-	// Write
-	if _, err := f.Write(data); err != nil {
-		return cleanup(err)
-	}
-
-	// Ensure file contents hit disk
-	if err := f.Sync(); err != nil {
-		return cleanup(err)
-	}
-
-	if err := f.Chmod(perm); err != nil {
-		return cleanup(err)
-	}
-
-	if err := f.Close(); err != nil {
-		return cleanup(err)
-	}
-
-	// Windows-safe retry loop
-	const maxRetries = 5
-	delay := 10 * time.Millisecond
-
-	for i := range maxRetries {
-		err = os.Rename(tmpName, filename)
-		if err == nil {
-			break
-		}
-
-		// Only retry on known transient Windows errors
-		if !isRetryable(err) {
-			_ = os.Remove(tmpName)
-			return err
-		}
-
-		if i < maxRetries-1 {
-			time.Sleep(delay)
-			delay *= 2
-		}
-	}
-
-	if err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("rename %s -> %s failed: %w", tmpName, filename, err)
-	}
-
-	// Unix durability: fsync directory
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-
-	return nil
-}
-
-func isRetryable(err error) bool {
-	// Windows tends to return EBUSY/EACCES if antivirus
-	// or another process is holding the file briefly.
-	return errors.Is(err, syscall.EBUSY) ||
-		errors.Is(err, syscall.EACCES)
 }
 
 // GetHeadCommit returns the commit referenced by HEAD.
@@ -537,7 +459,7 @@ func copyRecursive(src, dst string) error {
 
 // ReflogAppend atomically appends a git-style reflog entry to the given
 // reference log. The previous content is read, the new entry is appended
-// in memory, and the result is written via SafeWrite (temp-file + rename)
+// in memory, and the result is written via atomicio.WriteFile (temp-file + rename)
 // to prevent two concurrent writers from interleaving partial lines.
 func ReflogAppend(refname, oldHash, newHash, message string) error {
 	name, _, _ := GetConfig("user.name")
@@ -568,7 +490,7 @@ func ReflogAppend(refname, oldHash, newHash, message string) error {
 	existing, _ := os.ReadFile(logPath)
 
 	// Append in memory then write atomically to avoid concurrent interleaving.
-	return SafeWrite(logPath, append(existing, []byte(newEntry)...), 0o644)
+	return atomicio.WriteFile(logPath, append(existing, []byte(newEntry)...), 0o644)
 }
 
 // UpdateWorkspaceAndIndex forces the working directory and index to match

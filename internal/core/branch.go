@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
@@ -108,7 +109,7 @@ func CreateBranch(name string) error {
 	}
 
 	branchPath := filepath.Join(headsDir, name)
-	err = SafeWrite(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
+	err = atomicio.WriteFile(branchPath, []byte(strings.TrimSpace(commitHash)), 0o644)
 	if err == nil {
 		if logErr := ReflogAppend("refs/heads/"+name, "", commitHash, "branch: Created from HEAD"); logErr != nil {
 			return logErr
@@ -219,12 +220,12 @@ func RenameCurrentBranch(newName string) error {
 	}
 
 	// Create the new reference before modifying HEAD.
-	if err := SafeWrite(newRef, commitHash, 0o644); err != nil {
+	if err := atomicio.WriteFile(newRef, commitHash, 0o644); err != nil {
 		return err
 	}
 
 	newHeadContent := []byte(refPrefix + newName + "\n")
-	if err := SafeWrite(headPath, newHeadContent, 0o644); err != nil {
+	if err := atomicio.WriteFile(headPath, newHeadContent, 0o644); err != nil {
 		return err
 	}
 

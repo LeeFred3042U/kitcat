@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/app"
+	atomicio "github.com/LeeFred3042U/kitcat/internal/atomicio"
 	"github.com/LeeFred3042U/kitcat/internal/merge"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
@@ -122,11 +123,11 @@ func Merge(branchToMerge string) error {
 	}
 
 	// Persist merge metadata for subsequent commit
-	SafeWrite(filepath.Join(repo.Dir, "MERGE_HEAD"), []byte(featureHeadHash), 0o644)
+	atomicio.WriteFile(filepath.Join(repo.Dir, "MERGE_HEAD"), []byte(featureHeadHash), 0o644)
 
 	currentBranch, _ := GetHeadState()
 	mergeMsg := fmt.Sprintf("Merge branch '%s' into '%s'\n", branchToMerge, currentBranch)
-	SafeWrite(filepath.Join(repo.Dir, "MERGE_MSG"), []byte(mergeMsg), 0o644)
+	atomicio.WriteFile(filepath.Join(repo.Dir, "MERGE_MSG"), []byte(mergeMsg), 0o644)
 
 	// Report conflicts; user must resolve and commit
 	if len(plan.Conflicts) > 0 {

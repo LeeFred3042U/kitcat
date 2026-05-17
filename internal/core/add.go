@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/LeeFred3042U/kitcat/internal/hashutil"
 	"github.com/LeeFred3042U/kitcat/internal/plumbing"
@@ -13,15 +15,7 @@ import (
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
-// AddFile stages a single file or directory into the repository index.
-//
-// The function resolves the provided path, ensures it resides within the
-// repository root, and updates the index accordingly. When a directory is
-// provided, files are staged recursively while respecting ignore patterns
-// and internal repository directories.
 func AddFile(inputPath string) error {
-	// Resolve absolute path first so later Rel computations are stable
-	// regardless of the caller’s working directory.
 	absInputPath, err := filepath.Abs(inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve absolute path: %w", err)
@@ -40,7 +34,6 @@ func AddFile(inputPath string) error {
 		return err
 	}
 
-	// Switch to repo root so all index paths remain repo-relative.
 	originalWd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -50,20 +43,17 @@ func AddFile(inputPath string) error {
 	}
 	defer func() { _ = os.Chdir(originalWd) }()
 
-	// Index mutation is wrapped in UpdateIndex to guarantee exclusive write access.
 	return storage.UpdateIndex(func(index map[string]plumbing.IndexEntry) error {
 		ignorePatterns, err := LoadIgnorePatterns()
 		if err != nil {
 			return err
 		}
 
-		// Proxy index prevents tracked files from being ignored during matching.
 		proxyIndex := make(map[string]string, len(index))
 		for k := range index {
 			proxyIndex[k] = ""
 		}
 
-		// Fast path avoids directory walking overhead when input is a single file.
 		if !info.IsDir() {
 			relPath, err := filepath.Rel(repoRoot, absInputPath)
 			if err != nil {
@@ -75,7 +65,6 @@ func AddFile(inputPath string) error {
 			return err
 		}
 
-		// Directory walk stages files recursively while pruning ignored paths early.
 		return filepath.Walk(absInputPath, func(fullPath string, fInfo os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -87,7 +76,6 @@ func AddFile(inputPath string) error {
 			}
 			cleanPath := filepath.Clean(relPath)
 
-			// Skip ignored or internal directories to avoid unnecessary traversal.
 			if fInfo.IsDir() {
 				if fullPath == absInputPath {
 					return nil
@@ -104,18 +92,12 @@ func AddFile(inputPath string) error {
 	})
 }
 
-// AddAll stages every file under the repository root.
-//
-// The repository is scanned recursively and files are staged while
-// respecting ignore rules. Any previously indexed file that no longer
-// exists in the working tree is removed from the index.
 func AddAll() error {
 	repoRoot, err := FindRepoRoot()
 	if err != nil {
 		return errors.New("not a kitcat repository (run `kitcat init`)")
 	}
 
-	// Ensure index paths remain relative by executing from repo root.
 	originalWd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -136,21 +118,25 @@ func AddAll() error {
 			proxyIndex[k] = ""
 		}
 
-		// Track files encountered during walk so removed files can be pruned.
-		seen := make(map[string]bool, len(index))
+		type fileWork struct {
+			fullPath  string
+			cleanPath string
+			info      os.FileInfo
+		}
 
-		err = filepath.Walk(repoRoot, func(fullPath string, info os.FileInfo, err error) error {
+		var files []fileWork
+		var walkErr error
+
+		walkErr = filepath.Walk(repoRoot, func(fullPath string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
-
-			relPath, relErr := filepath.Rel(repoRoot, fullPath)
-			if relErr != nil {
-				return relErr
+			relPath, err := filepath.Rel(repoRoot, fullPath)
+			if err != nil {
+				return err
 			}
 			cleanPath := filepath.Clean(relPath)
 
-			// Early directory pruning reduces IO and avoids entering metadata dirs.
 			if info.IsDir() {
 				if fullPath == repoRoot {
 					return nil
@@ -161,41 +147,177 @@ func AddAll() error {
 				return nil
 			}
 
-			tracked, stageErr := stageFile(fullPath, cleanPath, info, index, ignorePatterns, proxyIndex)
-			if stageErr != nil {
-				return stageErr
+			if isInternalDir(cleanPath) || !IsSafePath(cleanPath) {
+				return nil
+			}
+			if ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
+				return nil
 			}
 
-			if tracked {
-				seen[cleanPath] = true
-			}
+			files = append(files, fileWork{
+				fullPath:  fullPath,
+				cleanPath: cleanPath,
+				info:      info,
+			})
 			return nil
 		})
-		if err != nil {
-			return err
+		if walkErr != nil {
+			return walkErr
 		}
 
-		// Remove index entries not encountered during the scan to reflect deletions.
-		var toDelete []string
-		for path := range index {
-			if !seen[path] {
-				toDelete = append(toDelete, path)
+		type stageResult struct {
+			cleanPath string
+			entry     plumbing.IndexEntry
+			tracked   bool
+			err       error
+		}
+
+		numWorkers := runtime.NumCPU()
+		if numWorkers > 8 {
+			numWorkers = 8
+		}
+
+		workCh := make(chan fileWork, numWorkers*2)
+		resultCh := make(chan stageResult, numWorkers*2)
+
+		var wg sync.WaitGroup
+		for i := 0; i < numWorkers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for work := range workCh {
+					tracked, entry, err := stageFileWorker(
+						work.fullPath,
+						work.cleanPath,
+						work.info,
+						index,
+						ignorePatterns,
+						proxyIndex,
+					)
+					resultCh <- stageResult{
+						cleanPath: work.cleanPath,
+						entry:     entry,
+						tracked:   tracked,
+						err:       err,
+					}
+				}
+			}()
+		}
+
+		go func() {
+			wg.Wait()
+			close(resultCh)
+		}()
+
+		go func() {
+			for _, f := range files {
+				workCh <- f
+			}
+			close(workCh)
+		}()
+
+		seen := make(map[string]bool, len(files))
+		var firstErr error
+
+		for result := range resultCh {
+			if result.err != nil {
+				if firstErr == nil {
+					firstErr = result.err
+				}
+				continue
+			}
+			if result.tracked {
+				index[result.cleanPath] = result.entry
+				seen[result.cleanPath] = true
 			}
 		}
-		for _, path := range toDelete {
-			delete(index, path)
+
+		if firstErr != nil {
+			return firstErr
+		}
+
+		for path := range index {
+			if !seen[path] {
+				delete(index, path)
+			}
 		}
 
 		return nil
 	})
 }
 
-// stageFile stages a single file into the index.
-//
-// The function performs validation checks, ensures the file is not ignored,
-// computes the blob hash, and updates the index entry. If the existing
-// index entry matches the file’s cached stat metadata, hashing is skipped
-// to avoid unnecessary I/O.
+func stageFileWorker(
+	fullPath, cleanPath string,
+	info os.FileInfo,
+	index map[string]plumbing.IndexEntry, // read-only
+	ignorePatterns []IgnorePattern,
+	proxyIndex map[string]string,
+) (tracked bool, entry plumbing.IndexEntry, err error) {
+	if info.IsDir() {
+		return false, plumbing.IndexEntry{}, nil
+	}
+	if isInternalDir(cleanPath) || !IsSafePath(cleanPath) {
+		return false, plumbing.IndexEntry{}, nil
+	}
+	if ShouldIgnore(cleanPath, ignorePatterns, proxyIndex) {
+		return false, plumbing.IndexEntry{}, nil
+	}
+
+	isSymlink := info.Mode()&os.ModeSymlink != 0
+	var fileMode uint32
+	switch {
+	case isSymlink:
+		fileMode = 0o120000
+	case info.Mode()&0o111 != 0:
+		fileMode = 0o100755
+	default:
+		fileMode = 0o100644
+	}
+
+	candidate := plumbing.IndexEntry{
+		Path:      cleanPath,
+		Mode:      fileMode,
+		Size:      uint32(info.Size()),
+		MTimeSec:  uint32(info.ModTime().Unix()),
+		MTimeNSec: uint32(info.ModTime().Nanosecond()),
+	}
+
+	if existing, exists := index[cleanPath]; exists {
+		if existing.Size == candidate.Size &&
+			existing.MTimeSec == candidate.MTimeSec &&
+			existing.MTimeNSec == candidate.MTimeNSec {
+			return true, existing, nil
+		}
+	}
+
+	var content []byte
+	if isSymlink {
+		target, err := os.Readlink(fullPath)
+		if err != nil {
+			return false, plumbing.IndexEntry{}, fmt.Errorf("readlink %s: %w", fullPath, err)
+		}
+		content = []byte(target)
+	} else {
+		content, err = os.ReadFile(fullPath)
+		if err != nil {
+			return false, plumbing.IndexEntry{}, fmt.Errorf("read %s: %w", fullPath, err)
+		}
+	}
+
+	hashStr, err := plumbing.HashAndWriteObject(content, "blob")
+	if err != nil {
+		return false, plumbing.IndexEntry{}, fmt.Errorf("hash %s: %w", cleanPath, err)
+	}
+
+	hashBytes, err := hashutil.DecodeHex(hashStr)
+	if err != nil {
+		return false, plumbing.IndexEntry{}, err
+	}
+	candidate.Hash = hashBytes
+
+	return true, candidate, nil
+}
+
 func stageFile(fullPath, cleanPath string, info os.FileInfo,
 	index map[string]plumbing.IndexEntry,
 	ignorePatterns []IgnorePattern,

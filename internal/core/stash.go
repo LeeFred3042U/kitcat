@@ -86,7 +86,7 @@ func StashApply(index int) error {
 //	    buf.WriteByte('\n')
 //	}
 //
-// 	if err := SafeWrite(path, buf.Bytes(), 0o644); err != nil {
+// 	if err := atomicio.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 // 		return err
 // 	}
 //

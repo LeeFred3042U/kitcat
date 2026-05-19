@@ -2,17 +2,36 @@ package remote
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 )
 
+var (
+	// ErrAuthRequired indicates the remote requires authentication.
+	ErrAuthRequired = errors.New("authentication required")
+	// ErrAuthDenied indicates provided credentials are insufficient.
+	ErrAuthDenied = errors.New("access denied")
+)
+
 // Auth holds the credentials used for HTTP basic authentication.
 type Auth struct {
 	Username string
 	Password string // personal access token for GitHub/GitLab/Gitea etc.
+	Source   AuthSource
 }
+
+type AuthSource string
+
+const (
+	AuthSourceUnknown  AuthSource = ""
+	AuthSourceExplicit AuthSource = "explicit"
+	AuthSourceEnv      AuthSource = "env"
+	AuthSourceKeychain AuthSource = "keychain"
+	AuthSourcePrompt   AuthSource = "prompt"
+)
 
 // RefInfo describes a single reference advertised by a remote.
 type RefInfo struct {
@@ -45,10 +64,10 @@ func discoverRefs(remoteURL, service string, auth *Auth) ([]RefInfo, string, err
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, "", fmt.Errorf("authentication required (401): check your credentials")
+		return nil, "", fmt.Errorf("%w (401): check your credentials", ErrAuthRequired)
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, "", fmt.Errorf("access denied (403): check your token permissions")
+		return nil, "", fmt.Errorf("%w (403): check your token permissions", ErrAuthDenied)
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, "", fmt.Errorf("repository not found (404): check the URL")
@@ -158,6 +177,14 @@ func doUploadPack(remoteURL string, want []string, auth *Auth) (io.ReadCloser, e
 	if err != nil {
 		return nil, fmt.Errorf("upload-pack request failed: %w", err)
 	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%w (401): check your credentials", ErrAuthRequired)
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		resp.Body.Close()
+		return nil, fmt.Errorf("%w (403): check your token permissions", ErrAuthDenied)
+	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("upload-pack returned HTTP %d", resp.StatusCode)
@@ -187,10 +214,10 @@ func doReceivePack(remoteURL string, body []byte, auth *Auth) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("push rejected (401): check your credentials")
+		return fmt.Errorf("%w (401): check your credentials", ErrAuthRequired)
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("push rejected (403): check your token has write access")
+		return fmt.Errorf("%w (403): check your token has write access", ErrAuthDenied)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("receive-pack returned HTTP %d", resp.StatusCode)

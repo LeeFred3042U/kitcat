@@ -3,6 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+
+	"github.com/LeeFred3042U/kitcat/internal/remote"
 )
 
 func addQuietFlag(fs *flag.FlagSet) *bool {
@@ -32,4 +35,38 @@ func parseStashIndex(arg string) int {
 		die("invalid stash reference: %s", arg)
 	}
 	return n
+}
+
+func addCredentialFlags(fs *flag.FlagSet) {
+	fs.String("u", "", "HTTP username (or set KITCAT_USER env var)")
+	fs.String("p", "", "HTTP password / token (or set KITCAT_TOKEN env var)")
+}
+
+func resolveExplicitAuth(fs *flag.FlagSet) *remote.Auth {
+	u := ""
+	p := ""
+
+	if f := fs.Lookup("u"); f != nil {
+		u = f.Value.String()
+	}
+	if f := fs.Lookup("p"); f != nil {
+		p = f.Value.String()
+	}
+
+	if u == "" {
+		u = os.Getenv("KITCAT_USER")
+	}
+	if p == "" {
+		p = os.Getenv("KITCAT_TOKEN")
+	}
+
+	if u == "" && p == "" {
+		return nil
+	}
+	// Only treat as explicit credentials if both are present.
+	// Partial credentials should fall back to other auth sources (keychain/prompt).
+	if u == "" || p == "" {
+		return nil
+	}
+	return &remote.Auth{Username: u, Password: p}
 }

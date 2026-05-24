@@ -2,12 +2,14 @@ package remote
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/LeeFred3042U/kitcat/internal/core"
 	"github.com/LeeFred3042U/kitcat/internal/repo"
+	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 // PushOptions holds all parameters for a push operation.
@@ -23,6 +25,8 @@ type PushOptions struct {
 	Auth *Auth
 	// Force skips the fast-forward check and forces the remote ref update.
 	Force bool
+	// SetUpstream writes branch.<branch>.remote/merge config after success.
+	SetUpstream bool
 }
 
 // Push sends local commits for a branch to a remote repository.
@@ -39,12 +43,12 @@ type PushOptions struct {
 func Push(opts PushOptions) error {
 	// ── 1. Resolve remote URL ────────────────────────────────────────────
 	remoteURL := opts.RemoteURL
+	remoteName := opts.RemoteName
 	if remoteURL == "" {
-		remoteName := opts.RemoteName
 		if remoteName == "" {
 			remoteName = "origin"
 		}
-		url, found, err := readRemoteURL(remoteName)
+		url, found, err := core.GetConfig("remote." + remoteName + ".url")
 		if err != nil {
 			return fmt.Errorf("reading remote config: %w", err)
 		}
@@ -54,17 +58,26 @@ func Push(opts PushOptions) error {
 		remoteURL = url
 	}
 
+	hostname, _ := hostnameFromRemoteURL(remoteURL)
+	auth := opts.Auth
+	// If explicit auth wasn't provided, try keychain silently (no prompting yet).
+	if (auth == nil || auth.Username == "" || auth.Password == "") && hostname != "" {
+		if kc, _ := keychainGet(hostname); kc != nil {
+			auth = kc
+		}
+	}
+
 	// ── 2. Resolve local branch ──────────────────────────────────────────
 	branch := opts.Branch
 	if branch == "" {
-		b, err := currentBranch()
+		b, err := core.CurrentBranch()
 		if err != nil {
 			return fmt.Errorf("determining current branch: %w", err)
 		}
 		branch = b
 	}
 
-	localSHA, err := readLocalBranchSHA(branch)
+	localSHA, err := storage.ReadBranchSHA(branch)
 	if err != nil {
 		return fmt.Errorf("reading local branch %q: %w", branch, err)
 	}
@@ -75,8 +88,15 @@ func Push(opts PushOptions) error {
 	// ── 3. Discover remote refs ──────────────────────────────────────────
 	fmt.Printf("Pushing to %s\n", remoteURL)
 
-	refs, _, err := discoverRefs(remoteURL, "git-receive-pack", opts.Auth)
+	refs, _, err := discoverRefs(remoteURL, "git-receive-pack", auth)
 	if err != nil {
+		if (errors.Is(err, ErrAuthRequired) || errors.Is(err, ErrAuthDenied)) && hostname != "" {
+			auth, err = ResolveAuth(remoteURL, opts.Auth)
+			if err != nil {
+				return err
+			}
+			refs, _, err = discoverRefs(remoteURL, "git-receive-pack", auth)
+		}
 		return fmt.Errorf("ref discovery: %w", err)
 	}
 
@@ -126,12 +146,27 @@ func Push(opts PushOptions) error {
 
 	// ── 7. Send update request + packfile ────────────────────────────────
 	body := buildReceivePackBody(remoteSHA, localSHA, remoteRefName, pack)
-	if err := doReceivePack(remoteURL, body, opts.Auth); err != nil {
-		return fmt.Errorf("receive-pack: %w", err)
+	if err := doReceivePack(remoteURL, body, auth); err != nil {
+		if (errors.Is(err, ErrAuthRequired) || errors.Is(err, ErrAuthDenied)) && hostname != "" {
+			auth, err2 := ResolveAuth(remoteURL, opts.Auth)
+			if err2 != nil {
+				return fmt.Errorf("receive-pack: %w", err)
+			}
+			if err := doReceivePack(remoteURL, body, auth); err != nil {
+				return fmt.Errorf("receive-pack: %w", err)
+			}
+		} else {
+			return fmt.Errorf("receive-pack: %w", err)
+		}
+	} else {
+		// success
 	}
 
 	// ── 8. Update remote-tracking ref ───────────────────────────────────
-	trackingRef := filepath.Join(repo.Dir, "refs", "remotes", "origin", branch)
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	trackingRef := filepath.Join(repo.Dir, "refs", "remotes", remoteName, branch)
 	if err := os.MkdirAll(filepath.Dir(trackingRef), 0o755); err != nil {
 		return err
 	}
@@ -139,7 +174,21 @@ func Push(opts PushOptions) error {
 		return fmt.Errorf("updating remote-tracking ref: %w", err)
 	}
 
-	fmt.Printf("Branch '%s' -> 'origin/%s'\n", branch, branch)
+	fmt.Printf("Branch '%s' -> '%s/%s'\n", branch, remoteName, branch)
+
+	// Optionally set upstream tracking.
+	if opts.SetUpstream {
+		if err := core.SetConfig("branch."+branch+".remote", remoteName, false); err != nil {
+			return fmt.Errorf("setting upstream remote: %w", err)
+		}
+		if err := core.SetConfig("branch."+branch+".merge", "refs/heads/"+branch, false); err != nil {
+			return fmt.Errorf("setting upstream merge ref: %w", err)
+		}
+	}
+
+	if hostname != "" && auth != nil && auth.Username != "" && auth.Password != "" {
+		_ = OfferSave(hostname, auth)
+	}
 	return nil
 }
 
@@ -167,79 +216,6 @@ func buildReceivePackBody(oldSHA, newSHA, refName string, pack []byte) []byte {
 	buf.Write(pack)
 
 	return buf.Bytes()
-}
-
-// readRemoteURL reads "remote.<name>.url" from the kitcat config file.
-func readRemoteURL(remoteName string) (string, bool, error) {
-	// Use the same INI parser the rest of kitcat uses (core.GetConfig).
-	// We call it indirectly through the config file to avoid an import
-	// cycle between remote and core.
-	configPath := filepath.Join(repo.Dir, "config")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-
-	// Parse INI looking for [remote "<name>"] → url = ...
-	lines := strings.Split(string(data), "\n")
-	inSection := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			sec, sub, _ := parseINISectionHeader(trimmed)
-			inSection = (sec == "remote" && sub == remoteName)
-			continue
-		}
-		if inSection {
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "url" {
-				return strings.TrimSpace(parts[1]), true, nil
-			}
-		}
-	}
-	return "", false, nil
-}
-
-// parseINISectionHeader parses "[section]" or "[section "subsection"]".
-func parseINISectionHeader(line string) (section, subsection string, ok bool) {
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "[") || !strings.HasSuffix(line, "]") {
-		return
-	}
-	content := line[1 : len(line)-1]
-	parts := strings.SplitN(content, " ", 2)
-	section = parts[0]
-	if len(parts) > 1 {
-		subsection = strings.Trim(parts[1], "\"")
-	}
-	ok = true
-	return
-}
-
-// currentBranch reads HEAD and returns the active branch name.
-func currentBranch() (string, error) {
-	data, err := os.ReadFile(repo.HeadPath)
-	if err != nil {
-		return "", err
-	}
-	ref := strings.TrimSpace(string(data))
-	if trimmed, ok := strings.CutPrefix(ref, "ref: refs/heads/"); ok {
-		return trimmed, nil
-	}
-	return "", fmt.Errorf("HEAD is detached; specify a branch explicitly")
-}
-
-// readLocalBranchSHA returns the commit SHA of a local branch.
-func readLocalBranchSHA(branch string) (string, error) {
-	path := filepath.Join(repo.HeadsDir, branch)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
 }
 
 // isAncestor returns true if candidate is an ancestor of tip by walking

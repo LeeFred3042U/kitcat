@@ -8,12 +8,28 @@ import (
 	"strings"
 
 	"github.com/LeeFred3042U/kitcat/internal/atomicio"
+	"github.com/LeeFred3042U/kitcat/internal/repo"
 	"github.com/LeeFred3042U/kitcat/internal/storage"
 )
 
 // headsDir is the directory containing local branch reference files.
 // Each file stores the commit hash that the branch currently points to.
 const headsDir string = ".kitcat/refs/heads"
+
+// CurrentBranch reads HEAD and returns the active branch name.
+// Returns an error if HEAD is detached.
+func CurrentBranch() (string, error) {
+	data, err := os.ReadFile(repo.HeadPath)
+	if err != nil {
+		return "", err
+	}
+	ref := strings.TrimSpace(string(data))
+	if trimmed, ok := strings.CutPrefix(ref, "ref: refs/heads/"); ok {
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("HEAD is detached; specify a branch explicitly")
+}
+
 
 // ResolveHead resolves the commit currently referenced by HEAD.
 //

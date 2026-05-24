@@ -38,6 +38,9 @@ var commands = map[string]func([]string){
 	"help":        handleHelp,
 	"clone":       handleClone,
 	"push":        handlePush,
+	"pull":        handlePull,
+	"credential":  handleCredential,
+	"fetch":       handleFetch,
 }
 
 func main() {

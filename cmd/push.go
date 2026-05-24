@@ -16,8 +16,8 @@ func handlePush(args []string) {
 	branch := fs.String("b", "", "Branch to push (default: current branch)")
 	forceFlag := fs.Bool("force", false, "Force push (skip fast-forward check)")
 	fs.Bool("f", false, "Shorthand for --force") // registered so -f is accepted
-	username := fs.String("u", "", "HTTP username (or set KITCAT_USER env var)")
-	password := fs.String("p", "", "HTTP password / token (or set KITCAT_TOKEN env var)")
+	setUpstream := fs.Bool("set-upstream", false, "Set upstream (write branch tracking config)")
+	addCredentialFlags(fs)
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(exitUsage)
@@ -37,24 +37,10 @@ func handlePush(args []string) {
 		remoteName = fs.Arg(0)
 	}
 
-	// Allow credentials via env vars so they are not visible in process lists.
-	user := *username
-	if user == "" {
-		user = os.Getenv("KITCAT_USER")
-	}
-	token := *password
-	if token == "" {
-		token = os.Getenv("KITCAT_TOKEN")
-	}
-
-	if user == "" || token == "" {
+	auth := resolveExplicitAuth(fs)
+	if auth == nil || auth.Username == "" || auth.Password == "" {
 		fmt.Fprintf(os.Stderr,
 			"hint: set -u / KITCAT_USER and -p / KITCAT_TOKEN for authenticated pushes\n")
-	}
-
-	var auth *remote.Auth
-	if user != "" || token != "" {
-		auth = &remote.Auth{Username: user, Password: token}
 	}
 
 	opts := remote.PushOptions{
@@ -62,6 +48,7 @@ func handlePush(args []string) {
 		Branch:     *branch,
 		Auth:       auth,
 		Force:      force,
+		SetUpstream: *setUpstream,
 	}
 
 	if err := remote.Push(opts); err != nil {

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -82,8 +83,25 @@ func Clone(opts CloneOptions) error {
 	fmt.Printf("Cloning into '%s'...\n", dir)
 	fmt.Println("remote: Counting objects...")
 
-	refs, _, err := discoverRefs(opts.RemoteURL, "git-upload-pack", opts.Auth)
+	hostname, _ := hostnameFromRemoteURL(opts.RemoteURL)
+	auth := opts.Auth
+	// If explicit auth wasn't provided, try keychain silently (no prompting yet).
+	if (auth == nil || auth.Username == "" || auth.Password == "") && hostname != "" {
+		if kc, _ := keychainGet(hostname); kc != nil {
+			auth = kc
+		}
+	}
+
+	refs, _, err := discoverRefs(opts.RemoteURL, "git-upload-pack", auth)
 	if err != nil {
+		// If the remote requires auth, prompt and retry once.
+		if (errors.Is(err, ErrAuthRequired) || errors.Is(err, ErrAuthDenied)) && hostname != "" {
+			auth, err = ResolveAuth(opts.RemoteURL, opts.Auth)
+			if err != nil {
+				return err
+			}
+			refs, _, err = discoverRefs(opts.RemoteURL, "git-upload-pack", auth)
+		}
 		return fmt.Errorf("ref discovery: %w", err)
 	}
 	if len(refs) == 0 {
@@ -145,7 +163,15 @@ func Clone(opts CloneOptions) error {
 	}
 
 	// ── 6. Fetch packfile ────────────────────────────────────────────────
-	body, err := doUploadPack(opts.RemoteURL, wantSHAs, opts.Auth)
+	body, err := doUploadPack(opts.RemoteURL, wantSHAs, auth)
+	if err != nil && (errors.Is(err, ErrAuthRequired) || errors.Is(err, ErrAuthDenied)) && hostname != "" {
+		// Auth required for upload-pack; prompt and retry once.
+		auth, err2 := ResolveAuth(opts.RemoteURL, opts.Auth)
+		if err2 != nil {
+			return fmt.Errorf("upload-pack: %w", err)
+		}
+		body, err = doUploadPack(opts.RemoteURL, wantSHAs, auth)
+	}
 	if err != nil {
 		return fmt.Errorf("upload-pack: %w", err)
 	}
@@ -222,6 +248,11 @@ func Clone(opts CloneOptions) error {
 	}
 
 	fmt.Printf("Branch '%s' set up to track 'origin/%s'.\n", branch, branch)
+
+	// Offer to save creds only if we actually used authenticated access.
+	if hostname != "" && auth != nil && auth.Username != "" && auth.Password != "" {
+		_ = OfferSave(hostname, auth)
+	}
 
 	success = true
 	return nil

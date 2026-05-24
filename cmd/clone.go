@@ -14,8 +14,7 @@ func handleClone(args []string) {
 
 	dir := fs.String("dir", "", "Local directory name (default: inferred from URL)")
 	branch := fs.String("b", "", "Branch to check out (default: remote HEAD)")
-	username := fs.String("u", "", "HTTP username (or set KITCAT_USER env var)")
-	password := fs.String("p", "", "HTTP password / token (or set KITCAT_TOKEN env var)")
+	addCredentialFlags(fs)
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(exitUsage)
@@ -28,20 +27,7 @@ func handleClone(args []string) {
 
 	remoteURL := fs.Arg(0)
 
-	// Allow credentials via env vars so they are not visible in process lists
-	user := *username
-	if user == "" {
-		user = os.Getenv("KITCAT_USER")
-	}
-	token := *password
-	if token == "" {
-		token = os.Getenv("KITCAT_TOKEN")
-	}
-
-	var auth *remote.Auth
-	if user != "" || token != "" {
-		auth = &remote.Auth{Username: user, Password: token}
-	}
+	auth := resolveExplicitAuth(fs)
 
 	opts := remote.CloneOptions{
 		RemoteURL: remoteURL,

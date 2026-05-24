@@ -336,6 +336,7 @@ func GetHeadState() (string, error) {
 	return content, nil
 }
 
+
 // UpdateBranchPointer updates either the branch reference or HEAD itself.
 func UpdateBranchPointer(commitHash string) error {
 	headData, err := os.ReadFile(repo.HeadPath)

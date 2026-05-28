@@ -36,6 +36,8 @@ kitcat_project_code.txt
 dump.sh
 dump_code.sh
 verify
+TestGuide.md
+cammndsFlags.md
 
 # Exceptions
 !.ci/run_kitcat.sh
